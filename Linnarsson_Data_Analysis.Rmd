@@ -1,0 +1,190 @@
+---
+title: "Linnarsson Data Analysis"
+author: "Jonathan Augustin"
+date: "1/9/2017"
+output: pdf_document
+---
+
+```{r include=FALSE, echo=FALSE}
+library(stringr)
+library(monocle)
+library(Rtsne)
+library(reshape2)
+library(gapmap)
+library(dplyr)
+library(magrittr)
+library(BiocGenerics)
+library(matrixStats)
+library(tidyr)
+library(GenomicFeatures)
+```
+
+Generating the CellDataSet object
+```{r, tidy=TRUE, include=FALSE}
+dat<-read.delim('expression_mRNA_17-Aug-2014.txt',header=F,stringsAsFactors=F)
+
+# Split out pData 
+pData<-as.data.frame(t(dat[1:10,-1]))
+colnames(pData)<-as.character(format(pData[1,]))
+pData<-pData[-1,]
+rownames(pData)<-pData$cell_id
+
+#split out expr data
+countData<-dat[-c(1:11),]
+rownames(countData)<-str_trim(as.character(format(countData[,1])))
+countData<-countData[,-c(1:2)] ### Need to check with Loyal about this... (nevermind...)
+colnames(countData)<-pData$cell_id
+countData<-data.matrix(format(countData))
+
+# Split out fData
+fData<-data.frame("gene_short_name"=rownames(countData),"clusterAssignment"=countData[,1])
+
+#Get GENCODE Annotation
+gencode.dat<- read.table("gencode.vM12.annotation.tab", sep="\t", header = T, stringsAsFactors = F)
+rownames(gencode.dat)<-NULL
+
+myJoin<-function(x){paste(x,collapse=",")}
+
+#fData.tmp<-merge(fData,ucsc.dat,by.x="gene_short_name",by.y="alias",sort=F,all.x=TRUE)
+fData.tmp<-merge(fData, unique(gencode.dat[gencode.dat$ccdsid %in% c("lincRNA", "protein_coding"),c("transcript_name","ccdsid")]), by.x="gene_short_name",by.y="transcript_name",sort=F,all.x=TRUE)
+as.data.frame(fData.tmp)
+rownames(fData.tmp)<-fData.tmp$gene_short_name
+fData<-fData.tmp[rownames(fData),]
+colnames(fData)<-c("gene_short_name", "clusterAssignment", "transcript_type")
+rownames(fData.tmp)<-fData.tmp$gene_short_name
+
+# Make CDS object
+
+fd<-new("AnnotatedDataFrame",data=fData)
+pd<-new("AnnotatedDataFrame",data=pData)
+
+
+#New CDS with absolute number of transcripts
+dat <-  newCellDataSet(countData, 
+                       phenoData = pd, 
+                       featureData = fd, 
+                       expressionFamily=negbinomial(), 
+                       lowerDetectionLimit=1)
+
+# rename 'group #' column
+colnames(pData(dat))[2] <- "group_num"
+
+```
+
+
+```{r tidy=TRUE, fig.width=15, fig.height=10 }
+#QC of data after
+pData(dat)$Total_mRNAs <- Matrix::colSums(exprs(dat))
+
+qplot(Total_mRNAs, data=pData(dat), color=level1class, fill=level1class, geom="density", alpha=0.1) +
+  facet_wrap("level1class", scales = "free") + theme_bw()
+
+```
+
+
+```{r tidy=TRUE, fig.height=5, fig.width=5}
+# Calculate the mean copies per cell among all classes (Bulk) and draw the density plot for lincRNAs vs protein coding
+dat.means<-detectGenes(dat, min_expr = 0.001)
+dat.means<-dat.means[fData(dat.means)$num_cells_expressed >= 1, pData(dat.means)$num_genes_expressed >=250]
+fData(dat.means)$mean_cpc<-apply(exprs(dat.means),1,mean)
+
+tmp<-data.frame("gene_short_name" = fData(dat.means)$gene_short_name,"gene_type" = fData(dat.means)$transcript_type,"mean_cpc"=fData(dat.means)$mean_cpc)
+
+dat_means<-subset(tmp,gene_type %in% c("protein_coding","lincRNA"))
+
+density.plot <- ggplot(dat_means) +
+  geom_density(aes(x=log10(mean_cpc),color=gene_type)) + 
+  scale_color_manual(values=c("red", "black")) + theme_bw()
+
+density.plot
+
+#List the lincRNAs that are expressed with a mean_cpc greater than 1
+dat_lincRNA_sort <- subset(dat_means, gene_type %in% "lincRNA")
+dat_mRNA_sort <- subset(dat_means, gene_type %in% "protein_coding")
+
+#length(dat_lincRNA_sort$gene_short_name)
+print("Number of lncRNAs = 441")
+#length(dat_mRNA_sort$gene_short_name)
+print("Number of mRNAs = 17091")
+
+```
+
+Seperate the "dat" CellDataSet by "Cluster" and calculate mean expression of genes
+```{r, tidy=TRUE, fig.width=25, fig.height=6}
+#Seperate the "dat" CellDataSet by "Cluster" and calculate mean expression of genes
+level1.split<-lapply(unique(pData(dat)$group_num),function(x){ dat[,pData(dat)$group_num==x]})
+
+level1.split<-lapply(c(1:length(level1.split)), function(x){ detectGenes(level1.split[[x]], min_expr = 0.01)})
+
+level1.split<-lapply(c(1:length(level1.split)), function(i){
+  x<-level1.split[[i]]
+  x[fData(x)$num_cells_expressed >= 1, pData(x)$num_genes_expressed >=1000] 
+  })
+
+level1.split<-lapply(level1.split,function(x){
+  mean_cpc<-apply(exprs(x),1,mean)
+  fData(x)$mean_cpc<-mean_cpc
+  return(x)
+})
+
+tmp<-data.frame()
+group_means<-lapply(c(1:length(level1.split)), function(i){
+  x<-level1.split[[i]]
+  res<-data.frame("gene_short_name"=fData(x)$gene_short_name, "gene_type"=fData(x)$transcript_type, "mean_cpc"=fData(x)$mean_cpc, "group_num"=unique(pData(x)$group_num))
+  tmp<-rbind(tmp,res)
+  })
+
+tmp<-plyr::ldply(group_means, data.frame)
+
+group_means<-subset(tmp,gene_type %in% c("protein_coding","lincRNA"))
+
+density.plot_level1class <- ggplot(group_means) +
+  geom_density(aes(x=log10(mean_cpc),color=gene_type)) + 
+  facet_grid(.~group_num, labeller=labeller(group_num=function(x){paste("Cluster",x,sep=":")})) + 
+  scale_color_manual(values=c("red", "black")) + theme_bw()
+
+density.plot_level1class
+```
+
+Seperate the "dat" CellDataSet by level2class and calculate mean expression of genes
+```{r, tidy=TRUE,fig.width=25, fig.height=12}
+#Seperate the "dat" CellDataSet by level2class and calculate mean expression of genes
+level2.split<-lapply(unique(pData(dat)[pData(dat)$level1class == "interneurons",]$level2class),function(x){
+  dat[,pData(dat)$level2class==x]})
+
+level2.split<-lapply(c(1:length(level2.split)), function(x){
+  detectGenes(level2.split[[x]], min_expr = 0.01)})
+
+level1.split<-lapply(c(1:length(level2.split)), function(i){
+  x<-level2.split[[i]]
+  x[fData(x)$num_cells_expressed >= 1, pData(x)$num_genes_expressed >100] 
+  })
+
+level2.split<-lapply(level2.split,function(x){
+  mean_cpc<-apply(exprs(x),1,mean)
+  fData(x)$mean_cpc<-mean_cpc
+  return(x)
+})
+
+tmp<-data.frame()
+
+group_means_level2class<-lapply(c(1:length(level2.split)), function(i){
+  x<-level2.split[[i]]
+  res<-data.frame("gene_short_name"=fData(x)$gene_short_name ,"gene_type"=fData(x)$transcript_type ,"mean_cpc"=fData(x)$mean_cpc ,"level2class"=unique(pData(x)$level2class))
+  tmp<-rbind(tmp,res)
+  })
+
+tmp<-plyr::ldply(group_means_level2class, data.frame)
+
+group_means_level2class<-subset(tmp,gene_type %in% c("protein_coding","lincRNA"))
+
+density.plot_level2class <- ggplot(group_means_level2class) +
+  geom_density(aes(x=log10(mean_cpc),color=gene_type)) + 
+  facet_wrap(~level2class, nrow = 2) + 
+  scale_color_manual(values=c("red", "black")) + theme_bw()
+
+density.plot_level2class
+```
+
+
+
