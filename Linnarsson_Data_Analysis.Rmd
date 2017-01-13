@@ -21,7 +21,7 @@ library(GenomicFeatures)
 
 Generating the CellDataSet object
 ```{r, tidy=TRUE, include=FALSE}
-dat<-read.delim('expression_mRNA_17-Aug-2014.txt',header=F,stringsAsFactors=F)
+dat<-read.delim('https://storage.googleapis.com/linnarsson-lab-www-blobs/blobs/cortex/expression_mRNA_17-Aug-2014.txt',header=F,stringsAsFactors=F)
 
 # Split out pData 
 pData<-as.data.frame(t(dat[1:10,-1]))
@@ -118,7 +118,7 @@ level1.split<-lapply(c(1:length(level1.split)), function(x){ detectGenes(level1.
 
 level1.split<-lapply(c(1:length(level1.split)), function(i){
   x<-level1.split[[i]]
-  x[fData(x)$num_cells_expressed >= 1, pData(x)$num_genes_expressed >=1000] 
+  x[fData(x)$num_cells_expressed > 1] 
   })
 
 level1.split<-lapply(level1.split,function(x){
@@ -157,7 +157,7 @@ level2.split<-lapply(c(1:length(level2.split)), function(x){
 
 level1.split<-lapply(c(1:length(level2.split)), function(i){
   x<-level2.split[[i]]
-  x[fData(x)$num_cells_expressed >= 1, pData(x)$num_genes_expressed >100] 
+  x[fData(x)$num_cells_expressed > 1] 
   })
 
 level2.split<-lapply(level2.split,function(x){
