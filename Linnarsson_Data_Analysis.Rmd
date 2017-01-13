@@ -20,7 +20,7 @@ library(GenomicFeatures)
 ```
 
 Generating the CellDataSet object
-```{r, tidy=TRUE, include=FALSE}
+```{r Data_Import, tidy=TRUE, include=FALSE}
 dat<-read.delim('https://storage.googleapis.com/linnarsson-lab-www-blobs/blobs/cortex/expression_mRNA_17-Aug-2014.txt',header=F,stringsAsFactors=F)
 
 # Split out pData 
@@ -72,7 +72,7 @@ colnames(pData(dat))[2] <- "group_num"
 ```
 
 
-```{r tidy=TRUE, fig.width=15, fig.height=10 }
+```{r Quality_Control, tidy=TRUE, fig.width=15, fig.height=10 }
 #QC of data after
 pData(dat)$Total_mRNAs <- Matrix::colSums(exprs(dat))
 
@@ -82,7 +82,7 @@ qplot(Total_mRNAs, data=pData(dat), color=level1class, fill=level1class, geom="d
 ```
 
 
-```{r tidy=TRUE, fig.height=5, fig.width=5}
+```{r Bulk_Analysis, tidy=TRUE, fig.height=5, fig.width=5}
 # Calculate the mean copies per cell among all classes (Bulk) and draw the density plot for lincRNAs vs protein coding
 dat.means<-detectGenes(dat, min_expr = 0.001)
 dat.means<-dat.means[fData(dat.means)$num_cells_expressed >= 1, pData(dat.means)$num_genes_expressed >=250]
@@ -110,26 +110,26 @@ print("Number of mRNAs = 17091")
 ```
 
 Seperate the "dat" CellDataSet by "Cluster" and calculate mean expression of genes
-```{r, tidy=TRUE, fig.width=25, fig.height=6}
+```{r Cluster, tidy=TRUE, fig.width=25, fig.height=6}
 #Seperate the "dat" CellDataSet by "Cluster" and calculate mean expression of genes
-level1.split<-lapply(unique(pData(dat)$group_num),function(x){ dat[,pData(dat)$group_num==x]})
+Cluster.split<-lapply(unique(pData(dat)$group_num),function(x){ dat[,pData(dat)$group_num==x]})
 
-level1.split<-lapply(c(1:length(level1.split)), function(x){ detectGenes(level1.split[[x]], min_expr = 0.01)})
+Cluster.split<-lapply(c(1:length(Cluster.split)), function(x){ detectGenes(Cluster.split[[x]], min_expr = 0.01)})
 
-level1.split<-lapply(c(1:length(level1.split)), function(i){
-  x<-level1.split[[i]]
+Cluster.split<-lapply(c(1:length(Cluster.split)), function(i){
+  x<-Cluster.split[[i]]
   x[fData(x)$num_cells_expressed > 1] 
   })
 
-level1.split<-lapply(level1.split,function(x){
+Cluster.split<-lapply(Cluster.split,function(x){
   mean_cpc<-apply(exprs(x),1,mean)
   fData(x)$mean_cpc<-mean_cpc
   return(x)
 })
 
 tmp<-data.frame()
-group_means<-lapply(c(1:length(level1.split)), function(i){
-  x<-level1.split[[i]]
+group_means<-lapply(c(1:length(Cluster.split)), function(i){
+  x<-Cluster.split[[i]]
   res<-data.frame("gene_short_name"=fData(x)$gene_short_name, "gene_type"=fData(x)$transcript_type, "mean_cpc"=fData(x)$mean_cpc, "group_num"=unique(pData(x)$group_num))
   tmp<-rbind(tmp,res)
   })
@@ -138,16 +138,16 @@ tmp<-plyr::ldply(group_means, data.frame)
 
 group_means<-subset(tmp,gene_type %in% c("protein_coding","lincRNA"))
 
-density.plot_level1class <- ggplot(group_means) +
+density.plot_Cluster <- ggplot(group_means) +
   geom_density(aes(x=log10(mean_cpc),color=gene_type)) + 
   facet_grid(.~group_num, labeller=labeller(group_num=function(x){paste("Cluster",x,sep=":")})) + 
   scale_color_manual(values=c("red", "black")) + theme_bw()
 
-density.plot_level1class
+density.plot_Cluster
 ```
 
 Seperate the "dat" CellDataSet by level2class and calculate mean expression of genes
-```{r, tidy=TRUE,fig.width=25, fig.height=12}
+```{r Level_2_Class, tidy=TRUE,fig.width=25, fig.height=12}
 #Seperate the "dat" CellDataSet by level2class and calculate mean expression of genes
 level2.split<-lapply(unique(pData(dat)[pData(dat)$level1class == "interneurons",]$level2class),function(x){
   dat[,pData(dat)$level2class==x]})
