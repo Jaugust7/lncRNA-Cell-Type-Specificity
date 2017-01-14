@@ -147,7 +147,7 @@ density.plot_Cluster
 ```
 
 Seperate the "dat" CellDataSet by level2class and calculate mean expression of genes
-```{r Level_2_Class, tidy=TRUE,fig.width=25, fig.height=12}
+```{r Level_2_Class_interneurons, tidy=TRUE,fig.width=25, fig.height=12}
 #Seperate the "dat" CellDataSet by level2class and calculate mean expression of genes
 level2.split<-lapply(unique(pData(dat)[pData(dat)$level1class == "interneurons",]$level2class),function(x){
   dat[,pData(dat)$level2class==x]})
@@ -184,6 +184,31 @@ density.plot_level2class <- ggplot(group_means_level2class) +
   scale_color_manual(values=c("red", "black")) + theme_bw()
 
 density.plot_level2class
+```
+
+```{r}
+
+level_2_barplot<-lapply(c(1:9), function(x){ pData(Cluster.split[[x]])$level2class %>% unique() %>% length()})
+level_2_barplot<-data.frame(level_2_barplot)
+colnames(level_2_barplot)<- c("Cluster_1", "Cluster_2", "Cluster_3", "Cluster_4", "Cluster_5", "Cluster_6", "Cluster_7", "Cluster_8", "Cluster_9")
+rownames(level_2_barplot)<-"Number_of_Clusters"
+level_2_barplot<-as.data.frame(level_2_barplot)
+as.matrix(level_2_barplot)
+
+barplot(as.matrix(level_2_barplot))
+
+tmp<-as.data.frame(t(level_2_barplot))
+
+bar.plot <- ggplot(tmp)
+
+bar.plot + geom_bar(aes(x=rownames(tmp), y=tmp$Number_of_Clusters, fill=rownames(tmp)), colour="black", width=0.5, stat = "identity") + scale_fill_brewer(palette = "Set1") + xlab("Cluster") + ylab("Number of cellular subtypes") + guides(fill="none") + theme_bw()
+
+
+ scatter.plot <- ggplot(group_means) + geom_point(aes(x=log10(mean_cpc), 
+                                                             y=group_num, 
+                                                             color=gene_type)) + 
+  theme_bw() + facet_grid(. ~ gene_type) + scale_color_manual(values=c("red", "black"))
+scatter.plot
 ```
 
 
