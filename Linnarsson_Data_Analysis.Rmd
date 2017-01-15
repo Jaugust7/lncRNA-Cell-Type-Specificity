@@ -76,16 +76,16 @@ colnames(pData(dat))[2] <- "group_num"
 #QC of data after
 pData(dat)$Total_mRNAs <- Matrix::colSums(exprs(dat))
 
-qplot(Total_mRNAs, data=pData(dat), color=level1class, fill=level1class, geom="density", alpha=0.1) +
-  facet_wrap("level1class", scales = "free") + theme_bw()
+qplot(Total_mRNAs, data=pData(dat), fill=level1class, geom="density", alpha=0.1) +
+  facet_wrap("level1class", scales = "free") + guides(fill = "none") + theme_bw()
 
 ```
 
 
 ```{r Bulk_Analysis, tidy=TRUE, fig.height=5, fig.width=5}
 # Calculate the mean copies per cell among all classes (Bulk) and draw the density plot for lincRNAs vs protein coding
-dat.means<-detectGenes(dat, min_expr = 0.001)
-dat.means<-dat.means[fData(dat.means)$num_cells_expressed >= 1, pData(dat.means)$num_genes_expressed >=250]
+dat.means<-detectGenes(dat, min_expr = 1)
+dat.means<-dat.means[fData(dat.means)$num_cells_expressed >= 1]
 fData(dat.means)$mean_cpc<-apply(exprs(dat.means),1,mean)
 
 tmp<-data.frame("gene_short_name" = fData(dat.means)$gene_short_name,"gene_type" = fData(dat.means)$transcript_type,"mean_cpc"=fData(dat.means)$mean_cpc)
@@ -114,7 +114,7 @@ Seperate the "dat" CellDataSet by "Cluster" and calculate mean expression of gen
 #Seperate the "dat" CellDataSet by "Cluster" and calculate mean expression of genes
 Cluster.split<-lapply(unique(pData(dat)$group_num),function(x){ dat[,pData(dat)$group_num==x]})
 
-Cluster.split<-lapply(c(1:length(Cluster.split)), function(x){ detectGenes(Cluster.split[[x]], min_expr = 0.01)})
+Cluster.split<-lapply(c(1:length(Cluster.split)), function(x){ detectGenes(Cluster.split[[x]], min_expr = 1)})
 
 Cluster.split<-lapply(c(1:length(Cluster.split)), function(i){
   x<-Cluster.split[[i]]
@@ -153,11 +153,11 @@ level2.split<-lapply(unique(pData(dat)[pData(dat)$level1class == "interneurons",
   dat[,pData(dat)$level2class==x]})
 
 level2.split<-lapply(c(1:length(level2.split)), function(x){
-  detectGenes(level2.split[[x]], min_expr = 0.01)})
+  detectGenes(level2.split[[x]], min_expr = 1)})
 
 level1.split<-lapply(c(1:length(level2.split)), function(i){
   x<-level2.split[[i]]
-  x[fData(x)$num_cells_expressed > 1] 
+  x[fData(x)$num_cells_expressed >=3] 
   })
 
 level2.split<-lapply(level2.split,function(x){
@@ -186,7 +186,7 @@ density.plot_level2class <- ggplot(group_means_level2class) +
 density.plot_level2class
 ```
 
-```{r}
+```{r, tidy=TRUE,fig.width=5, fig.height=5}
 
 level_2_barplot<-lapply(c(1:9), function(x){ pData(Cluster.split[[x]])$level2class %>% unique() %>% length()})
 level_2_barplot<-data.frame(level_2_barplot)
@@ -195,20 +195,62 @@ rownames(level_2_barplot)<-"Number_of_Clusters"
 level_2_barplot<-as.data.frame(level_2_barplot)
 as.matrix(level_2_barplot)
 
-barplot(as.matrix(level_2_barplot))
-
 tmp<-as.data.frame(t(level_2_barplot))
 
 bar.plot <- ggplot(tmp)
 
 bar.plot + geom_bar(aes(x=rownames(tmp), y=tmp$Number_of_Clusters, fill=rownames(tmp)), colour="black", width=0.5, stat = "identity") + scale_fill_brewer(palette = "Set1") + xlab("Cluster") + ylab("Number of cellular subtypes") + guides(fill="none") + theme_bw()
+```
 
+```{r Calculate_STD_&_BCV, tide}
 
- scatter.plot <- ggplot(group_means) + geom_point(aes(x=log10(mean_cpc), 
-                                                             y=group_num, 
-                                                             color=gene_type)) + 
+level2.split<- lapply(c(1:length(level2.split)), function(i){
+  x=level2.split[[i]]
+  fData(x)$gene_std_pc<-rowSds(exprs(x))
+  return(x)
+})
+
+level2.split<-lapply(c(1:length(level2.split)), function(i){
+  x=level2.split[[i]]
+  fData(x)$BCV<-as.vector(fData(x)$gene_std_pc)/as.vector(fData(x)$mean_cpc)
+  return(x)
+})
+
+tmp<- data.frame()
+
+bcv_cluster<-lapply(c(1:length(level2.split)), function(i){
+  x<-level2.split[[i]]
+  res<-data.frame("gene_short_name"=fData(x)$gene_short_name, "gene_type"=fData(x)$transcript_type, "mean_cpc"=fData(x)$mean_cpc,"BCV" =fData(x)$BCV, "gene_sd_pc" = fData(x)$gene_std_pc, "level2class"=unique(pData(x)$level2class))
+  tmp<-rbind(tmp,res)
+  })
+  
+ scatter.plot <- ggplot(bcv_cluster) + geom_point(aes(x=log10(BCV), 
+                                                             y=level2class, 
+                                                             color=)) + 
   theme_bw() + facet_grid(. ~ gene_type) + scale_color_manual(values=c("red", "black"))
 scatter.plot
+```
+
+```{r}
+
+complete.level2.split<-lapply(unique(pData(dat)$level2class),function(x){
+  dat[,pData(dat)$level2class==x]})
+
+complete.level2.split<-lapply(c(1:length(complete.level2.split)), function(x){
+  detectGenes(complete.level2.split[[x]], min_expr = 1)})
+
+complete.level1.split<-lapply(c(1:length(complete.level2.split)), function(i){
+  x<-complete.level2.split[[i]]
+  x[fData(x)$num_cells_expressed >=3] 
+  })
+
+complete.level2.split<-lapply(complete.level2.split,function(x){
+  mean_cpc<-apply(exprs(x),1,mean)
+  fData(x)$mean_cpc<-mean_cpc
+  return(x)
+  })
+
+
 ```
 
 
