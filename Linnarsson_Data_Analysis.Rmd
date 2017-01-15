@@ -204,31 +204,53 @@ bar.plot + geom_bar(aes(x=rownames(tmp), y=tmp$Number_of_Clusters, fill=rownames
 
 ```{r Calculate_STD_&_BCV, tide}
 
-level2.split<- lapply(c(1:length(level2.split)), function(i){
-  x=level2.split[[i]]
+cluster.bcv.dat<-lapply(unique(pData(dat)$group_num),function(x){ dat[,pData(dat)$group_num==x]})
+
+cluster.bcv.dat<-lapply(c(1:length(cluster.bcv.dat)), function(x){ detectGenes(cluster.bcv.dat[[x]], min_expr = 1)})
+
+cluster.bcv.dat<-lapply(c(1:length(cluster.bcv.dat)), function(i){
+  x<-cluster.bcv.dat[[i]]
+  x[fData(x)$num_cells_expressed > 1] 
+  })
+
+cluster.bcv.dat<-lapply(cluster.bcv.dat, function(x){
+  mean_cpc<-apply(exprs(x), 1, mean)
+  fData(x)$mean_cpc<-mean_cpc
+  return(x)
+  })
+
+cluster.bcv.dat<- lapply(c(1:length(cluster.bcv.dat)), function(i){
+  x=cluster.bcv.dat[[i]]
   fData(x)$gene_std_pc<-rowSds(exprs(x))
   return(x)
-})
+  })
 
-level2.split<-lapply(c(1:length(level2.split)), function(i){
-  x=level2.split[[i]]
+cluster.bcv.dat<-lapply(c(1:length(unique(cluster.bcv.dat))), function(i){
+  x=cluster.bcv.dat[[i]]
   fData(x)$BCV<-as.vector(fData(x)$gene_std_pc)/as.vector(fData(x)$mean_cpc)
   return(x)
-})
+  })
 
 tmp<- data.frame()
 
-bcv_cluster<-lapply(c(1:length(level2.split)), function(i){
-  x<-level2.split[[i]]
-  res<-data.frame("gene_short_name"=fData(x)$gene_short_name, "gene_type"=fData(x)$transcript_type, "mean_cpc"=fData(x)$mean_cpc,"BCV" =fData(x)$BCV, "gene_sd_pc" = fData(x)$gene_std_pc, "level2class"=unique(pData(x)$level2class))
+bcv_cluster<-lapply(c(1:length(cluster.bcv.dat)), function(i){
+  x<-cluster.bcv.dat[[i]]
+  res<-data.frame("gene_short_name"=fData(x)$gene_short_name, "gene_type"=fData(x)$transcript_type, "mean_cpc"=fData(x)$mean_cpc,"BCV" =fData(x)$BCV, "gene_sd_pc" = fData(x)$gene_std_pc, "cluster_num" = rep(i))
   tmp<-rbind(tmp,res)
   })
-  
- scatter.plot <- ggplot(bcv_cluster) + geom_point(aes(x=log10(BCV), 
-                                                             y=level2class, 
-                                                             color=)) + 
-  theme_bw() + facet_grid(. ~ gene_type) + scale_color_manual(values=c("red", "black"))
-scatter.plot
+
+bcv<-Reduce(function(...) merge(..., all=TRUE), bcv_cluster)
+
+linc_bcv<-subset(bcv, bcv$gene_type=="lincRNA")
+mRNA_bcv<-subset(bcv, bcv$gene_type=="protein_coding")
+
+delta_BCV_by_cluster<-lapply(c(1:9), function(x){
+  median(subset(mRNA_bcv, mRNA_bcv$cluster_num==x)$BCV) - median(subset(linc_bcv,linc_bcv$cluster_num==x)$BCV)
+  })
+
+names(delta_BCV_by_cluster)<-c("Cluster_1", "Cluster_2", "Cluster_3", "Cluster_4", "Cluster_5", "Cluster_6", "Cluster_7", "Cluster_8", "Cluster_9")
+
+as.matrix(delta_BCV_by_cluster)
 ```
 
 ```{r}
@@ -236,10 +258,10 @@ scatter.plot
 complete.level2.split<-lapply(unique(pData(dat)$level2class),function(x){
   dat[,pData(dat)$level2class==x]})
 
-complete.level2.split<-lapply(c(1:length(complete.level2.split)), function(x){
+complete.level2.split<-lapply(c(1:length(unique(pData(dat)$level2class))), function(x){
   detectGenes(complete.level2.split[[x]], min_expr = 1)})
 
-complete.level1.split<-lapply(c(1:length(complete.level2.split)), function(i){
+complete.level2.split<-lapply(c(1:length(unique(pData(dat)$level2class))), function(i){
   x<-complete.level2.split[[i]]
   x[fData(x)$num_cells_expressed >=3] 
   })
@@ -249,6 +271,34 @@ complete.level2.split<-lapply(complete.level2.split,function(x){
   fData(x)$mean_cpc<-mean_cpc
   return(x)
   })
+
+complete.level2.split<- lapply(c(1:length(unique(pData(dat)$level2class))), function(i){
+  x=complete.level2.split[[i]]
+  fData(x)$gene_std_pc<-rowSds(exprs(x))
+  return(x)
+  })
+
+complete.level2.split<-lapply(c(1:length(unique(pData(dat)$level2class))), function(i){
+  x=complete.level2.split[[i]]
+  fData(x)$BCV<-as.vector(fData(x)$gene_std_pc)/as.vector(fData(x)$mean_cpc)
+  return(x)
+  })
+
+tmp<- data.frame()
+
+bcv_level2class<-lapply(c(1:length(complete.level2.split)), function(i){
+  x<-complete.level2.split[[i]]
+  res<-data.frame("gene_short_name"=fData(x)$gene_short_name, "gene_type"=fData(x)$transcript_type, "mean_cpc"=fData(x)$mean_cpc,"BCV" =fData(x)$BCV, "gene_sd_pc" = fData(x)$gene_std_pc, "level2class"=unique(pData(x)$level2class))
+  tmp<-rbind(tmp,res)
+  })
+
+names(bcv_level2class)<-unique(pData(dat)$level2class)
+
+level2_bcv<-Reduce(function(...) merge(..., all=TRUE), bcv_level2class)
+
+p<-ggplot(level2_bcv)
+
+p + geom_point(aes(x=log10(BCV), y=values(unique(level2_bcv)$level2class)))
 
 
 ```
