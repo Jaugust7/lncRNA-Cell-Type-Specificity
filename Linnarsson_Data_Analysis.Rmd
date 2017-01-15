@@ -19,6 +19,16 @@ library(tidyr)
 library(GenomicFeatures)
 ```
 
+
+```{r Helper_Fxns, include=FALSE, echo=FALSE}
+
+Mode <- function(x) {
+  ux <- unique(x)
+  ux[which.max(tabulate(match(x, ux)))]
+}
+
+```
+
 Generating the CellDataSet object
 ```{r Data_Import, tidy=TRUE, include=FALSE}
 dat<-read.delim('https://storage.googleapis.com/linnarsson-lab-www-blobs/blobs/cortex/expression_mRNA_17-Aug-2014.txt',header=F,stringsAsFactors=F)
@@ -103,7 +113,7 @@ dat_lincRNA_sort <- subset(dat_means, gene_type %in% "lincRNA")
 dat_mRNA_sort <- subset(dat_means, gene_type %in% "protein_coding")
 
 #length(dat_lincRNA_sort$gene_short_name)
-print("Number of lncRNAs = 441")
+print("`Number of lncRNAs = 441")
 #length(dat_mRNA_sort$gene_short_name)
 print("Number of mRNAs = 17091")
 
@@ -202,58 +212,7 @@ bar.plot <- ggplot(tmp)
 bar.plot + geom_bar(aes(x=rownames(tmp), y=tmp$Number_of_Clusters, fill=rownames(tmp)), colour="black", width=0.5, stat = "identity") + scale_fill_brewer(palette = "Set1") + xlab("Cluster") + ylab("Number of cellular subtypes") + guides(fill="none") + theme_bw()
 ```
 
-```{r Calculate_STD_&_BCV, tide}
-
-cluster.bcv.dat<-lapply(unique(pData(dat)$group_num),function(x){ dat[,pData(dat)$group_num==x]})
-
-cluster.bcv.dat<-lapply(c(1:length(cluster.bcv.dat)), function(x){ detectGenes(cluster.bcv.dat[[x]], min_expr = 1)})
-
-cluster.bcv.dat<-lapply(c(1:length(cluster.bcv.dat)), function(i){
-  x<-cluster.bcv.dat[[i]]
-  x[fData(x)$num_cells_expressed > 1] 
-  })
-
-cluster.bcv.dat<-lapply(cluster.bcv.dat, function(x){
-  mean_cpc<-apply(exprs(x), 1, mean)
-  fData(x)$mean_cpc<-mean_cpc
-  return(x)
-  })
-
-cluster.bcv.dat<- lapply(c(1:length(cluster.bcv.dat)), function(i){
-  x=cluster.bcv.dat[[i]]
-  fData(x)$gene_std_pc<-rowSds(exprs(x))
-  return(x)
-  })
-
-cluster.bcv.dat<-lapply(c(1:length(unique(cluster.bcv.dat))), function(i){
-  x=cluster.bcv.dat[[i]]
-  fData(x)$BCV<-as.vector(fData(x)$gene_std_pc)/as.vector(fData(x)$mean_cpc)
-  return(x)
-  })
-
-tmp<- data.frame()
-
-bcv_cluster<-lapply(c(1:length(cluster.bcv.dat)), function(i){
-  x<-cluster.bcv.dat[[i]]
-  res<-data.frame("gene_short_name"=fData(x)$gene_short_name, "gene_type"=fData(x)$transcript_type, "mean_cpc"=fData(x)$mean_cpc,"BCV" =fData(x)$BCV, "gene_sd_pc" = fData(x)$gene_std_pc, "cluster_num" = rep(i))
-  tmp<-rbind(tmp,res)
-  })
-
-bcv<-Reduce(function(...) merge(..., all=TRUE), bcv_cluster)
-
-linc_bcv<-subset(bcv, bcv$gene_type=="lincRNA")
-mRNA_bcv<-subset(bcv, bcv$gene_type=="protein_coding")
-
-delta_BCV_by_cluster<-lapply(c(1:9), function(x){
-  median(subset(mRNA_bcv, mRNA_bcv$cluster_num==x)$BCV) - median(subset(linc_bcv,linc_bcv$cluster_num==x)$BCV)
-  })
-
-names(delta_BCV_by_cluster)<-c("Cluster_1", "Cluster_2", "Cluster_3", "Cluster_4", "Cluster_5", "Cluster_6", "Cluster_7", "Cluster_8", "Cluster_9")
-
-as.matrix(delta_BCV_by_cluster)
-```
-
-```{r}
+```{r Level2class_complete_split, tidy=TRUE}
 
 complete.level2.split<-lapply(unique(pData(dat)$level2class),function(x){
   dat[,pData(dat)$level2class==x]})
@@ -295,13 +254,69 @@ bcv_level2class<-lapply(c(1:length(complete.level2.split)), function(i){
 names(bcv_level2class)<-unique(pData(dat)$level2class)
 
 level2_bcv<-Reduce(function(...) merge(..., all=TRUE), bcv_level2class)
-
-p<-ggplot(level2_bcv)
-
-p + geom_point(aes(x=log10(BCV), y=values(unique(level2_bcv)$level2class)))
-
-
 ```
 
+```{r Calculate_STD_&_BCV, tidy=TRUE, fig.width=5, fig.height=5}
+cluster.bcv.dat<-lapply(unique(pData(dat)$group_num),function(x){ dat[,pData(dat)$group_num==x]})
 
+cluster.bcv.dat<-lapply(c(1:length(cluster.bcv.dat)), function(x){ detectGenes(cluster.bcv.dat[[x]], min_expr = 1)})
+
+cluster.bcv.dat<-lapply(c(1:length(cluster.bcv.dat)), function(i){
+  x<-cluster.bcv.dat[[i]]
+  x[fData(x)$num_cells_expressed > 1] 
+  })
+
+cluster.bcv.dat<-lapply(cluster.bcv.dat, function(x){
+  mean_cpc<-apply(exprs(x), 1, mean)
+  fData(x)$mean_cpc<-mean_cpc
+  return(x)
+  })
+
+cluster.bcv.dat<- lapply(c(1:length(cluster.bcv.dat)), function(i){
+  x=cluster.bcv.dat[[i]]
+  fData(x)$gene_std_pc<-rowSds(exprs(x))
+  return(x)
+  })
+
+cluster.bcv.dat<-lapply(c(1:length(unique(cluster.bcv.dat))), function(i){
+  x=cluster.bcv.dat[[i]]
+  fData(x)$BCV<-as.vector(fData(x)$gene_std_pc)/as.vector(fData(x)$mean_cpc)
+  return(x)
+  })
+
+tmp<- data.frame()
+
+bcv_cluster<-lapply(c(1:length(cluster.bcv.dat)), function(i){
+  x<-cluster.bcv.dat[[i]]
+  res<-data.frame("gene_short_name"=fData(x)$gene_short_name, "gene_type"=fData(x)$transcript_type, "mean_cpc"=fData(x)$mean_cpc,"BCV" =fData(x)$BCV, "gene_sd_pc" = fData(x)$gene_std_pc, "cluster_num" = rep(i))
+  tmp<-rbind(tmp,res)
+  })
+
+bcv<-Reduce(function(...) merge(..., all=TRUE), bcv_cluster)
+
+linc_bcv<-subset(bcv, bcv$gene_type=="lincRNA")
+mRNA_bcv<-subset(bcv, bcv$gene_type=="protein_coding")
+
+delta_median_by_cluster<-lapply(c(1:9), function(x){
+  median(subset(mRNA_bcv, mRNA_bcv$cluster_num==x)$mean_cpc)-median(subset(linc_bcv,linc_bcv$cluster_num==x)$mean_cpc)
+  })
+
+names(delta_median_by_cluster)<-c("Cluster_1", "Cluster_2", "Cluster_3", "Cluster_4", "Cluster_5", "Cluster_6", "Cluster_7", "Cluster_8", "Cluster_9")
+
+delta_median_by_cluster<-as.matrix(delta_median_by_cluster)
+delta_median_by_cluster<-as.data.frame(delta_median_by_cluster)
+colnames(delta_median_by_cluster) <- "delta_median_mean_cpc"
+delta_median_by_cluster$delta_median_mean_cpc<-as.numeric(delta_median_by_cluster$delta_median_mean_cpc)
+
+
+t.level_2_barplot<-t(level_2_barplot)
+t.level_2_barplot<-as.data.frame(t.level_2_barplot)
+delta_median_by_cluster$Number_of_Clusters<- as.vector(t.level_2_barplot$Number_of_Clusters)
+
+p<-ggplot(delta_median_by_cluster, aes(x=delta_median_mean_cpc, y=Number_of_Clusters))
+
+scatter.plot<-p + geom_point(aes(color=rownames(delta_median_by_cluster))) + geom_smooth(aes(alpha=0.1),method = "lm", se = T, color="black", alpha=0.2) + scale_color_brewer(palette = "Set1") + guides(fill="none") + theme_bw() + theme(legend.position="none")
+
+scatter.plot
+```
 
