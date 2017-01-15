@@ -200,16 +200,17 @@ density.plot_level2class
 
 level_2_barplot<-lapply(c(1:9), function(x){ pData(Cluster.split[[x]])$level2class %>% unique() %>% length()})
 level_2_barplot<-data.frame(level_2_barplot)
-colnames(level_2_barplot)<- c("Cluster_1", "Cluster_2", "Cluster_3", "Cluster_4", "Cluster_5", "Cluster_6", "Cluster_7", "Cluster_8", "Cluster_9")
+colnames(level_2_barplot)<- c("1", "2", "3", "4", "5", "6", "7", "8", "9")
 rownames(level_2_barplot)<-"Number_of_Clusters"
 level_2_barplot<-as.data.frame(level_2_barplot)
 as.matrix(level_2_barplot)
 
-tmp<-as.data.frame(t(level_2_barplot))
+level_2_barplot<-as.data.frame(t(level_2_barplot))
 
-bar.plot <- ggplot(tmp)
+bar.plot <- ggplot(level_2_barplot)
 
-bar.plot + geom_bar(aes(x=rownames(tmp), y=tmp$Number_of_Clusters, fill=rownames(tmp)), colour="black", width=0.5, stat = "identity") + scale_fill_brewer(palette = "Set1") + xlab("Cluster") + ylab("Number of cellular subtypes") + guides(fill="none") + theme_bw()
+bar.plot + geom_bar(aes(x=rownames(level_2_barplot), y=tmp$Number_of_Clusters, fill=rownames(level_2_barplot)), colour="black", width=0.5, stat = "identity") + scale_fill_brewer(palette = "Set1", guide = guide_legend(title = "Cluster #")) + xlab("Cluster #") + ylab("Number of cellular subtypes") + theme_bw() + theme(axis.text.x = element_blank())
+
 ```
 
 ```{r Level2class_complete_split, tidy=TRUE}
