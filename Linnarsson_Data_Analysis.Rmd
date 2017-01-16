@@ -2,7 +2,9 @@
 title: "Linnarsson Data Analysis"
 author: "Jonathan Augustin"
 date: "1/9/2017"
-output: pdf_document
+output:
+  html_document: default
+  pdf_document: default
 ---
 
 ```{r include=FALSE, echo=FALSE}
@@ -203,13 +205,12 @@ level_2_barplot<-data.frame(level_2_barplot)
 colnames(level_2_barplot)<- c("1", "2", "3", "4", "5", "6", "7", "8", "9")
 rownames(level_2_barplot)<-"Number_of_Clusters"
 level_2_barplot<-as.data.frame(level_2_barplot)
-as.matrix(level_2_barplot)
 
 level_2_barplot<-as.data.frame(t(level_2_barplot))
 
 bar.plot <- ggplot(level_2_barplot)
 
-bar.plot + geom_bar(aes(x=rownames(level_2_barplot), y=tmp$Number_of_Clusters, fill=rownames(level_2_barplot)), colour="black", width=0.5, stat = "identity") + scale_fill_brewer(palette = "Set1", guide = guide_legend(title = "Cluster #")) + xlab("Cluster #") + ylab("Number of cellular subtypes") + theme_bw() + theme(axis.text.x = element_blank())
+bar.plot + geom_bar(aes(x=rownames(level_2_barplot), y=level_2_barplot$Number_of_Clusters, fill=rownames(level_2_barplot)), colour="black", width=0.5, stat = "identity") + scale_fill_brewer(palette = "Set1", guide = guide_legend(title = "Cluster #")) + xlab("Cluster #") + ylab("Number of cellular subtypes") + theme_bw() + theme(axis.text.x = element_blank())
 
 ```
 
@@ -309,14 +310,11 @@ delta_median_by_cluster<-as.data.frame(delta_median_by_cluster)
 colnames(delta_median_by_cluster) <- "delta_median_mean_cpc"
 delta_median_by_cluster$delta_median_mean_cpc<-as.numeric(delta_median_by_cluster$delta_median_mean_cpc)
 
+delta_median_by_cluster$Number_of_subtypes<- as.vector(level_2_barplot$Number_of_Clusters)
 
-t.level_2_barplot<-t(level_2_barplot)
-t.level_2_barplot<-as.data.frame(t.level_2_barplot)
-delta_median_by_cluster$Number_of_Clusters<- as.vector(t.level_2_barplot$Number_of_Clusters)
+p<-ggplot(delta_median_by_cluster, aes(x=delta_median_mean_cpc, y=Number_of_subtypes))
 
-p<-ggplot(delta_median_by_cluster, aes(x=delta_median_mean_cpc, y=Number_of_Clusters))
-
-scatter.plot<-p + geom_point(aes(color=rownames(delta_median_by_cluster))) + geom_smooth(aes(alpha=0.1),method = "lm", se = T, color="black", alpha=0.2) + scale_color_brewer(palette = "Set1") + guides(fill="none") + theme_bw() + theme(legend.position="none")
+scatter.plot<-p + geom_point(aes(color=rownames(delta_median_by_cluster))) + geom_smooth(aes(alpha=0.1),method = "lm", se = T, color="black", alpha=0.2) + scale_color_brewer(palette = "Set1", guide = guide_legend(title = "Cluster #")) + guides(fill="none") + theme_bw() + xlab("Δ median copies per cell (mRNA-lncRNA)") +ylab("Number of cellular subtypes") + theme(legend.position="none")
 
 scatter.plot
 ```
