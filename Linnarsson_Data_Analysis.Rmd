@@ -19,6 +19,7 @@ library(BiocGenerics)
 library(matrixStats)
 library(tidyr)
 library(GenomicFeatures)
+library(RColorBrewer)
 ```
 
 
@@ -78,6 +79,10 @@ dat <-  newCellDataSet(countData,
                        expressionFamily=negbinomial(), 
                        lowerDetectionLimit=1)
 
+dat<-estimateSizeFactors(dat)
+dat <- estimateDispersions(dat, cores=8)
+dat<-detectGenes(dat,min_expr=1)
+
 # rename 'group #' column
 colnames(pData(dat))[2] <- "group_num"
 
@@ -99,8 +104,10 @@ qplot(Total_mRNAs, data=pData(dat), fill=level1class, geom="density", alpha=0.1)
 dat.means<-detectGenes(dat, min_expr = 1)
 dat.means<-dat.means[fData(dat.means)$num_cells_expressed >= 1]
 fData(dat.means)$mean_cpc<-apply(exprs(dat.means),1,mean)
+fData(dat.means)$sd<-apply(exprs(dat.means),1,sd)
+fData(dat.means)$BCV<-(fData(dat.means)$sd/fData(dat.means)$mean_cpc)^2
 
-tmp<-data.frame("gene_short_name" = fData(dat.means)$gene_short_name,"gene_type" = fData(dat.means)$transcript_type,"mean_cpc"=fData(dat.means)$mean_cpc)
+tmp<-data.frame("gene_short_name" = fData(dat.means)$gene_short_name,"gene_type" = fData(dat.means)$transcript_type,"mean_cpc"=fData(dat.means)$mean_cpc, "BCV" = fData(dat.means)$BCV, "num_cells_expresed"=fData(dat.means)$num_cells_expressed)
 
 dat_means<-subset(tmp,gene_type %in% c("protein_coding","lincRNA"))
 
@@ -115,9 +122,88 @@ dat_lincRNA_sort <- subset(dat_means, gene_type %in% "lincRNA")
 dat_mRNA_sort <- subset(dat_means, gene_type %in% "protein_coding")
 
 #length(dat_lincRNA_sort$gene_short_name)
-print("`Number of lncRNAs = 441")
+print("Number of lncRNAs = 441")
 #length(dat_mRNA_sort$gene_short_name)
 print("Number of mRNAs = 17091")
+
+#Generate a boxplot on the batch data
+dat_means$frac_cells_expressed<-dat_means$num_cells_expresed/length(rownames(pData(dat.means)))
+
+boxplot<-ggplot(dat_means, aes(gene_type, frac_cells_expressed, fill=gene_type)) + geom_boxplot(notch=T) + theme_bw() + scale_fill_manual(values=c("red", "grey50"))
+
+boxplot
+
+#Generate empirical cumulative density function
+ecdf<-ggplot(dat_means, aes(x=log10(BCV), color=gene_type)) + stat_ecdf(geom = "line") + theme_bw() + scale_color_manual(values=c("red", "grey50"))
+
+ecdf
+```
+
+```{r tSNE, tidy=TRUE, fig.height=10, fig.width=10}
+#tSNE on all genes
+dat.tSNE<-Rtsne(t(round(vstExprs(dat))),theta=0.1)
+
+pData(dat)$tSNE1_pos<-dat.tSNE$Y[,1]
+pData(dat)$tSNE2_pos<-dat.tSNE$Y[,2]
+
+p<-ggplot(pData(dat))
+
+tSNE_cluster<-p + geom_point(aes(x=tSNE1_pos,y=tSNE2_pos,color=group_num)) + theme_bw() + coord_equal(1) + scale_color_brewer(palette="Set1")
+
+tSNE_cluster
+
+tSNE_level2class<-p + geom_point(aes(x=tSNE1_pos,y=tSNE2_pos,color=level2class)) + theme_bw() + coord_equal(1) +  scale_color_manual(values = colorRampPalette(brewer.pal(9, "Set1"))(length(unique(pData(tmp)$level2class))))
+
+#tSNE on lincRNAS
+tmp<-subset(dat, fData(dat)$transcript_type %in% "lincRNA")
+
+lincRNA.dat.tSNE<-Rtsne(t(round(vstExprs(tmp))),theta=0.1, check_duplicates = F)
+
+pData(tmp)$tSNE1_pos<-lincRNA.dat.tSNE$Y[,1]
+pData(tmp)$tSNE2_pos<-lincRNA.dat.tSNE$Y[,2]
+
+q<-ggplot(pData(tmp))
+
+lincRNA_tSNE<-q + geom_point(aes(x=tSNE1_pos,y=tSNE2_pos,color=group_num)) + theme_bw() + coord_equal(1) + scale_color_brewer(palette="Set1")
+
+lincRNA_tSNE
+
+#Color by level2class
+lincRNA_tSNE_level2class<-q + geom_point(aes(x=tSNE1_pos,y=tSNE2_pos,color=level2class)) + theme_bw() + coord_equal(1) +  scale_color_manual(values = colorRampPalette(brewer.pal(9, "Set1"))(length(unique(pData(tmp)$level2class))))
+
+lincRNA_tSNE_level2class
+
+#Color by Sex, size is reflective of XIST expression
+lincRNA_tSNE_sex<-q + geom_point(aes(x=tSNE1_pos,y=tSNE2_pos,color=sex, size=exprs(tmp)[1,])) + scale_size("Xist") + theme_bw() + coord_equal(1) +  scale_fill_brewer(palette = "Set1")
+
+lincRNA_tSNE_sex
+
+#Color by infered batch
+pData(tmp)$cell_id<-colnames(exprs(tmp))
+pData(tmp)$batch<-str_split_fixed(pData(tmp)$cell_id, "_", 2)[,1]
+
+j<-ggplot(pData(tmp))
+
+lincRNA_tSNE_batch<-j + geom_point(aes(x=tSNE1_pos,y=tSNE2_pos,color=batch)) + theme_bw() + coord_equal(1) + scale_color_manual(values = colorRampPalette(brewer.pal(9, "Set1"))(length(unique(pData(tmp)$batch))))
+
+lincRNA_tSNE_batch
+
+#tSNE by lincRNA without Xist
+
+sex_blind.dat<-subset(dat, fData(dat)$transcript_type %in% "lincRNA")
+sex_blind_list<-as.vector(rownames(exprs(sex_blind.dat)[-1,]))
+sex_blind.dat<-subset(sex_blind.dat, rownames(exprs(sex_blind.dat)) %in% sex_blind_list)
+
+sex_blind_lincRNA.tSNE<-Rtsne(t(round(vstExprs(sex_blind.dat))),theta=0.1, check_duplicates = F)
+
+pData(sex_blind.dat)$tSNE1_pos<-sex_blind_lincRNA.tSNE$Y[,1]
+pData(sex_blind.dat)$tSNE2_pos<-sex_blind_lincRNA.tSNE$Y[,2]
+
+n<-ggplot(pData(sex_blind.dat))
+
+sex_blind_tSNE<-n + geom_point(aes(x=tSNE1_pos,y=tSNE2_pos,color=group_num)) + theme_bw() + coord_equal(1) + scale_color_brewer(palette="Set1")
+
+sex_blind_tSNE
 
 ```
 
@@ -130,19 +216,27 @@ Cluster.split<-lapply(c(1:length(Cluster.split)), function(x){ detectGenes(Clust
 
 Cluster.split<-lapply(c(1:length(Cluster.split)), function(i){
   x<-Cluster.split[[i]]
-  x[fData(x)$num_cells_expressed > 1] 
+  x[fData(x)$num_cells_expressed >2] 
   })
 
 Cluster.split<-lapply(Cluster.split,function(x){
   mean_cpc<-apply(exprs(x),1,mean)
   fData(x)$mean_cpc<-mean_cpc
   return(x)
-})
+  })
+
+Cluster.split<-lapply(c(1:length(Cluster.split)), function(i){
+  x<-Cluster.split[[i]]
+  frac_cells_expressed<-(fData(x)$num_cells_expressed/length(rownames(pData(x))))
+  fData(x)$frac_cells_expressed<-frac_cells_expressed
+  return(x)
+  })
 
 tmp<-data.frame()
+
 group_means<-lapply(c(1:length(Cluster.split)), function(i){
   x<-Cluster.split[[i]]
-  res<-data.frame("gene_short_name"=fData(x)$gene_short_name, "gene_type"=fData(x)$transcript_type, "mean_cpc"=fData(x)$mean_cpc, "group_num"=unique(pData(x)$group_num))
+  res<-data.frame("gene_short_name"=fData(x)$gene_short_name, "gene_type"=fData(x)$transcript_type, "mean_cpc"=fData(x)$mean_cpc, "group_num"=unique(pData(x)$group_num), "frac_cells_expressed"=fData(x)$frac_cells_expressed)
   tmp<-rbind(tmp,res)
   })
 
@@ -156,6 +250,11 @@ density.plot_Cluster <- ggplot(group_means) +
   scale_color_manual(values=c("red", "black")) + theme_bw()
 
 density.plot_Cluster
+
+#Generate box plots
+boxplot_cluster<-ggplot(group_means, aes(gene_type, frac_cells_expressed, fill=gene_type))
+
+boxplot_cluster + geom_boxplot() + theme_bw() + scale_fill_manual(values=c("red", "grey50")) + facet_grid(~ group_num, labeller=labeller(group_num=function(x){paste("Cluster",x,sep=":")}))
 ```
 
 Seperate the "dat" CellDataSet by level2class and calculate mean expression of genes
@@ -169,7 +268,7 @@ level2.split<-lapply(c(1:length(level2.split)), function(x){
 
 level1.split<-lapply(c(1:length(level2.split)), function(i){
   x<-level2.split[[i]]
-  x[fData(x)$num_cells_expressed >=3] 
+  x[fData(x)$num_cells_expressed >=1] 
   })
 
 level2.split<-lapply(level2.split,function(x){
@@ -214,7 +313,7 @@ bar.plot + geom_bar(aes(x=rownames(level_2_barplot), y=level_2_barplot$Number_of
 
 ```
 
-```{r Level2class_complete_split, tidy=TRUE}
+```{r Level2class_complete_split, tidy=TRUE, fig.height=25, fig.width=25}
 
 complete.level2.split<-lapply(unique(pData(dat)$level2class),function(x){
   dat[,pData(dat)$level2class==x]})
@@ -224,7 +323,7 @@ complete.level2.split<-lapply(c(1:length(unique(pData(dat)$level2class))), funct
 
 complete.level2.split<-lapply(c(1:length(unique(pData(dat)$level2class))), function(i){
   x<-complete.level2.split[[i]]
-  x[fData(x)$num_cells_expressed >=3] 
+  x[fData(x)$num_cells_expressed >=1] 
   })
 
 complete.level2.split<-lapply(complete.level2.split,function(x){
@@ -245,17 +344,37 @@ complete.level2.split<-lapply(c(1:length(unique(pData(dat)$level2class))), funct
   return(x)
   })
 
+complete.level2.split<-lapply(c(1:length(unique(pData(dat)$level2class))), function(i){
+  x=complete.level2.split[[i]]
+  fData(x)$frac_cells_expressed<-fData(x)$num_cells_expressed/length(rownames(pData(x)))
+  return(x)
+  })
+  
 tmp<- data.frame()
 
 bcv_level2class<-lapply(c(1:length(complete.level2.split)), function(i){
   x<-complete.level2.split[[i]]
-  res<-data.frame("gene_short_name"=fData(x)$gene_short_name, "gene_type"=fData(x)$transcript_type, "mean_cpc"=fData(x)$mean_cpc,"BCV" =fData(x)$BCV, "gene_sd_pc" = fData(x)$gene_std_pc, "level2class"=unique(pData(x)$level2class))
+  res<-data.frame("gene_short_name"=fData(x)$gene_short_name, "gene_type"=fData(x)$transcript_type, "mean_cpc"=fData(x)$mean_cpc,"BCV" =fData(x)$BCV, "gene_sd_pc" = fData(x)$gene_std_pc, "level2class"=unique(pData(x)$level2class), "frac_cells_expressed"=fData(x)$frac_cells_expressed)
   tmp<-rbind(tmp,res)
   })
 
 names(bcv_level2class)<-unique(pData(dat)$level2class)
 
 level2_bcv<-Reduce(function(...) merge(..., all=TRUE), bcv_level2class)
+level2_bcv<-subset(level2_bcv, gene_type %in% c("lincRNA","protein_coding"))
+
+#Generate density plots
+density.plot_all_level2class <- ggplot(level2_bcv) +
+  geom_density(aes(x=log10(mean_cpc),color=gene_type)) + 
+  facet_wrap(~level2class, nrow = 8) + 
+  scale_color_manual(values=c("red", "black")) + theme_bw()
+
+density.plot_all_level2class
+
+#Generate box plots
+boxplot_level2Class<-ggplot(level2_bcv, aes(gene_type, frac_cells_expressed, fill=gene_type))
+boxplot_level2Class + geom_boxplot() + theme_bw() + scale_fill_manual(values=c("red", "grey50")) + facet_wrap(~ level2class, nrow=8)
+
 ```
 
 ```{r Calculate_STD_&_BCV, tidy=TRUE, fig.width=5, fig.height=5}
@@ -265,7 +384,7 @@ cluster.bcv.dat<-lapply(c(1:length(cluster.bcv.dat)), function(x){ detectGenes(c
 
 cluster.bcv.dat<-lapply(c(1:length(cluster.bcv.dat)), function(i){
   x<-cluster.bcv.dat[[i]]
-  x[fData(x)$num_cells_expressed > 1] 
+  x[fData(x)$num_cells_expressed > 2] 
   })
 
 cluster.bcv.dat<-lapply(cluster.bcv.dat, function(x){
@@ -312,9 +431,9 @@ delta_median_by_cluster$delta_median_mean_cpc<-as.numeric(delta_median_by_cluste
 
 delta_median_by_cluster$Number_of_subtypes<- as.vector(level_2_barplot$Number_of_Clusters)
 
-p<-ggplot(delta_median_by_cluster, aes(x=delta_median_mean_cpc, y=Number_of_subtypes))
+p<-ggplot(delta_median_by_cluster, aes(x=Number_of_subtypes, y=delta_median_mean_cpc))
 
-scatter.plot<-p + geom_point(aes(color=rownames(delta_median_by_cluster))) + geom_smooth(aes(alpha=0.1),method = "lm", se = T, color="black", alpha=0.2) + scale_color_brewer(palette = "Set1", guide = guide_legend(title = "Cluster #")) + guides(fill="none") + theme_bw() + xlab("Δ median copies per cell (mRNA-lncRNA)") +ylab("Number of cellular subtypes") + theme(legend.position="none")
+scatter.plot<-p + geom_point(aes(color=rownames(delta_median_by_cluster))) + geom_smooth(aes(alpha=0.1),method = "lm", se = T, color="black", alpha=0.2) + scale_color_brewer(palette = "Set1", guide = guide_legend(title = "Cluster #")) + guides(fill="none") + theme_bw() + xlab("Number of cellular subtypes") +ylab("Δ median copies per cell (mRNA-lncRNA)") + theme(legend.position="none")
 
 scatter.plot
 ```
