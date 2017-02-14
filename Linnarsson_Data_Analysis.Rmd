@@ -1,7 +1,7 @@
 ---
 title: "Linnarsson Data Analysis"
 author: "Jonathan Augustin"
-date: "1/9/2017"
+date: 
 output:
   html_document: default
   pdf_document: default
@@ -102,7 +102,7 @@ qplot(Total_mRNAs, data=pData(dat), fill=level1class, geom="density", alpha=0.1)
 ```{r Bulk_Analysis, tidy=TRUE, fig.height=5, fig.width=5}
 # Calculate the mean copies per cell among all classes (Bulk) and draw the density plot for lincRNAs vs protein coding
 dat.means<-detectGenes(dat, min_expr = 1)
-dat.means<-dat.means[fData(dat.means)$num_cells_expressed >= 1]
+dat.means<-dat.means[fData(dat.means)$num_cells_expressed > 2]
 fData(dat.means)$mean_cpc<-apply(exprs(dat.means),1,mean)
 fData(dat.means)$sd<-apply(exprs(dat.means),1,sd)
 fData(dat.means)$BCV<-(fData(dat.means)$sd/fData(dat.means)$mean_cpc)^2
@@ -140,7 +140,7 @@ ecdf
 ```
 
 ```{r tSNE, tidy=TRUE, fig.height=10, fig.width=10}
-#tSNE on all genes
+#tSNE using all genes
 dat.tSNE<-Rtsne(t(round(vstExprs(dat))),theta=0.1)
 
 pData(dat)$tSNE1_pos<-dat.tSNE$Y[,1]
@@ -154,7 +154,7 @@ tSNE_cluster
 
 tSNE_level2class<-p + geom_point(aes(x=tSNE1_pos,y=tSNE2_pos,color=level2class)) + theme_bw() + coord_equal(1) +  scale_color_manual(values = colorRampPalette(brewer.pal(9, "Set1"))(length(unique(pData(tmp)$level2class))))
 
-#tSNE on lincRNAS
+#tSNE using only lncRNAs
 tmp<-subset(dat, fData(dat)$transcript_type %in% "lincRNA")
 
 lincRNA.dat.tSNE<-Rtsne(t(round(vstExprs(tmp))),theta=0.1, check_duplicates = F)
@@ -164,11 +164,12 @@ pData(tmp)$tSNE2_pos<-lincRNA.dat.tSNE$Y[,2]
 
 q<-ggplot(pData(tmp))
 
+#tSNE using only lncRNAs color by cluster number (as determined by Linnarsson Lab)
 lincRNA_tSNE<-q + geom_point(aes(x=tSNE1_pos,y=tSNE2_pos,color=group_num)) + theme_bw() + coord_equal(1) + scale_color_brewer(palette="Set1")
 
 lincRNA_tSNE
 
-#Color by level2class
+#tSNE using only lncRNAs color by level2clss
 lincRNA_tSNE_level2class<-q + geom_point(aes(x=tSNE1_pos,y=tSNE2_pos,color=level2class)) + theme_bw() + coord_equal(1) +  scale_color_manual(values = colorRampPalette(brewer.pal(9, "Set1"))(length(unique(pData(tmp)$level2class))))
 
 lincRNA_tSNE_level2class
@@ -178,7 +179,7 @@ lincRNA_tSNE_sex<-q + geom_point(aes(x=tSNE1_pos,y=tSNE2_pos,color=sex, size=exp
 
 lincRNA_tSNE_sex
 
-#Color by infered batch
+#Color by infered batch (utililze the run number from cell_id in order to infer batch)
 pData(tmp)$cell_id<-colnames(exprs(tmp))
 pData(tmp)$batch<-str_split_fixed(pData(tmp)$cell_id, "_", 2)[,1]
 
@@ -188,8 +189,7 @@ lincRNA_tSNE_batch<-j + geom_point(aes(x=tSNE1_pos,y=tSNE2_pos,color=batch)) + t
 
 lincRNA_tSNE_batch
 
-#tSNE by lincRNA without Xist
-
+#tSNE by lincRNA without Xist (we do this because Xist expression splits the cells into two groups by sex)
 sex_blind.dat<-subset(dat, fData(dat)$transcript_type %in% "lincRNA")
 sex_blind_list<-as.vector(rownames(exprs(sex_blind.dat)[-1,]))
 sex_blind.dat<-subset(sex_blind.dat, rownames(exprs(sex_blind.dat)) %in% sex_blind_list)
@@ -204,7 +204,6 @@ n<-ggplot(pData(sex_blind.dat))
 sex_blind_tSNE<-n + geom_point(aes(x=tSNE1_pos,y=tSNE2_pos,color=group_num)) + theme_bw() + coord_equal(1) + scale_color_brewer(palette="Set1")
 
 sex_blind_tSNE
-
 ```
 
 Seperate the "dat" CellDataSet by "Cluster" and calculate mean expression of genes
@@ -259,16 +258,16 @@ boxplot_cluster + geom_boxplot() + theme_bw() + scale_fill_manual(values=c("red"
 
 Seperate the "dat" CellDataSet by level2class and calculate mean expression of genes
 ```{r Level_2_Class_interneurons, tidy=TRUE,fig.width=25, fig.height=12}
-#Seperate the "dat" CellDataSet by level2class and calculate mean expression of genes
+#Seperate the "dat" CellDataSet by the Interneuron level2classes and calculate mean_cpc within this new object
 level2.split<-lapply(unique(pData(dat)[pData(dat)$level1class == "interneurons",]$level2class),function(x){
   dat[,pData(dat)$level2class==x]})
 
 level2.split<-lapply(c(1:length(level2.split)), function(x){
   detectGenes(level2.split[[x]], min_expr = 1)})
 
-level1.split<-lapply(c(1:length(level2.split)), function(i){
+level2.split<-lapply(c(1:length(level2.split)), function(i){
   x<-level2.split[[i]]
-  x[fData(x)$num_cells_expressed >=1] 
+  x[fData(x)$num_cells_expressed >2] 
   })
 
 level2.split<-lapply(level2.split,function(x){
@@ -298,7 +297,7 @@ density.plot_level2class
 ```
 
 ```{r, tidy=TRUE,fig.width=5, fig.height=5}
-
+#Generate a barplot that has all of the subcell types for each of the 9 clusters (again as determined by the Linnarsson group)
 level_2_barplot<-lapply(c(1:9), function(x){ pData(Cluster.split[[x]])$level2class %>% unique() %>% length()})
 level_2_barplot<-data.frame(level_2_barplot)
 colnames(level_2_barplot)<- c("1", "2", "3", "4", "5", "6", "7", "8", "9")
@@ -314,7 +313,7 @@ bar.plot + geom_bar(aes(x=rownames(level_2_barplot), y=level_2_barplot$Number_of
 ```
 
 ```{r Level2class_complete_split, tidy=TRUE, fig.height=25, fig.width=25}
-
+#Completely split the CellDataSet by level2class and calculate the mean_cpc in each of the new CellDataSet objects
 complete.level2.split<-lapply(unique(pData(dat)$level2class),function(x){
   dat[,pData(dat)$level2class==x]})
 
@@ -378,6 +377,7 @@ boxplot_level2Class + geom_boxplot() + theme_bw() + scale_fill_manual(values=c("
 ```
 
 ```{r Calculate_STD_&_BCV, tidy=TRUE, fig.width=5, fig.height=5}
+#Some odds and ends that I may want to come back and use later.
 cluster.bcv.dat<-lapply(unique(pData(dat)$group_num),function(x){ dat[,pData(dat)$group_num==x]})
 
 cluster.bcv.dat<-lapply(c(1:length(cluster.bcv.dat)), function(x){ detectGenes(cluster.bcv.dat[[x]], min_expr = 1)})
@@ -424,6 +424,7 @@ delta_median_by_cluster<-lapply(c(1:9), function(x){
 
 names(delta_median_by_cluster)<-c("Cluster_1", "Cluster_2", "Cluster_3", "Cluster_4", "Cluster_5", "Cluster_6", "Cluster_7", "Cluster_8", "Cluster_9")
 
+#Generate a scatter plot of Δ median copies per cell (mRNA-lncRNA) for each cluster
 delta_median_by_cluster<-as.matrix(delta_median_by_cluster)
 delta_median_by_cluster<-as.data.frame(delta_median_by_cluster)
 colnames(delta_median_by_cluster) <- "delta_median_mean_cpc"
