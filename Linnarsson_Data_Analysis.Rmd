@@ -102,7 +102,7 @@ qplot(Total_mRNAs, data=pData(dat), fill=level1class, geom="density", alpha=0.1)
 ```{r Bulk_Analysis, tidy=TRUE, fig.height=5, fig.width=5}
 # Calculate the mean copies per cell among all classes (Bulk) and draw the density plot for lincRNAs vs protein coding
 dat.means<-detectGenes(dat, min_expr = 1)
-dat.means<-dat.means[fData(dat.means)$num_cells_expressed > 2]
+dat.means<-dat.means[fData(dat.means)$num_cells_expressed >=2]
 fData(dat.means)$mean_cpc<-apply(exprs(dat.means),1,mean)
 fData(dat.means)$sd<-apply(exprs(dat.means),1,sd)
 fData(dat.means)$BCV<-(fData(dat.means)$sd/fData(dat.means)$mean_cpc)^2
@@ -121,10 +121,10 @@ density.plot
 dat_lincRNA_sort <- subset(dat_means, gene_type %in% "lincRNA")
 dat_mRNA_sort <- subset(dat_means, gene_type %in% "protein_coding")
 
-#length(dat_lincRNA_sort$gene_short_name)
-print("Number of lncRNAs = 441")
-#length(dat_mRNA_sort$gene_short_name)
-print("Number of mRNAs = 17091")
+# Number of lncRNAs
+length(dat_lincRNA_sort$gene_short_name)
+# Number of mRNAs
+length(dat_mRNA_sort$gene_short_name)
 
 #Generate a boxplot on the batch data
 dat_means$frac_cells_expressed<-dat_means$num_cells_expresed/length(rownames(pData(dat.means)))
@@ -215,7 +215,7 @@ Cluster.split<-lapply(c(1:length(Cluster.split)), function(x){ detectGenes(Clust
 
 Cluster.split<-lapply(c(1:length(Cluster.split)), function(i){
   x<-Cluster.split[[i]]
-  x[fData(x)$num_cells_expressed >2] 
+  x[fData(x)$num_cells_expressed >=2] 
   })
 
 Cluster.split<-lapply(Cluster.split,function(x){
@@ -267,7 +267,7 @@ level2.split<-lapply(c(1:length(level2.split)), function(x){
 
 level2.split<-lapply(c(1:length(level2.split)), function(i){
   x<-level2.split[[i]]
-  x[fData(x)$num_cells_expressed >2] 
+  x[fData(x)$num_cells_expressed >=2] 
   })
 
 level2.split<-lapply(level2.split,function(x){
@@ -322,7 +322,7 @@ complete.level2.split<-lapply(c(1:length(unique(pData(dat)$level2class))), funct
 
 complete.level2.split<-lapply(c(1:length(unique(pData(dat)$level2class))), function(i){
   x<-complete.level2.split[[i]]
-  x[fData(x)$num_cells_expressed >=1] 
+  x[fData(x)$num_cells_expressed >=2] 
   })
 
 complete.level2.split<-lapply(complete.level2.split,function(x){
@@ -384,7 +384,7 @@ cluster.bcv.dat<-lapply(c(1:length(cluster.bcv.dat)), function(x){ detectGenes(c
 
 cluster.bcv.dat<-lapply(c(1:length(cluster.bcv.dat)), function(i){
   x<-cluster.bcv.dat[[i]]
-  x[fData(x)$num_cells_expressed > 2] 
+  x[fData(x)$num_cells_expressed >=2] 
   })
 
 cluster.bcv.dat<-lapply(cluster.bcv.dat, function(x){
