@@ -173,6 +173,11 @@ lincRNA_tSNE<-q + geom_point(aes(x=tSNE1_pos,y=tSNE2_pos,color=group_num)) + the
 
 lincRNA_tSNE
 
+#tSNE using only lncRNAs colored by level1class (as determined by Linnarsson Lab)
+lincRNA_level1class_tSNE<-q + geom_point(aes(x=tSNE1_pos,y=tSNE2_pos,color=level1class)) + theme_bw() + coord_equal(1) + scale_color_brewer(palette="Set1")
+
+lincRNA_level1class_tSNE
+
 #tSNE using only lncRNAs color by level2clss
 lincRNA_tSNE_level2class<-q + geom_point(aes(x=tSNE1_pos,y=tSNE2_pos,color=level2class)) + theme_bw() + coord_equal(1) +  scale_color_manual(values = colorRampPalette(brewer.pal(9, "Set1"))(length(unique(pData(tmp)$level2class))))
 
