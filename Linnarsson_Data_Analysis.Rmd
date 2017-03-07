@@ -45,9 +45,9 @@ rownames(pData)<-pData$cell_id
 #split out expr data
 countData<-dat[-c(1:11),]
 rownames(countData)<-str_trim(as.character(format(countData[,1])))
-countData<-countData[,-c(1:2)] ### Need to check with Loyal about this... (nevermind...)
+countData<-countData[,-c(1:2)]
 colnames(countData)<-pData$cell_id
-countData<-data.matrix(format(countData))
+countData<-data.matrix(countData)
 
 # Split out fData
 fData<-data.frame("gene_short_name"=rownames(countData),"clusterAssignment"=countData[,1])
@@ -58,13 +58,13 @@ rownames(gencode.dat)<-NULL
 
 myJoin<-function(x){paste(x,collapse=",")}
 
-#fData.tmp<-merge(fData,ucsc.dat,by.x="gene_short_name",by.y="alias",sort=F,all.x=TRUE)
-fData.tmp<-merge(fData, unique(gencode.dat[gencode.dat$ccdsid %in% c("lincRNA", "protein_coding"),c("transcript_name","ccdsid")]), by.x="gene_short_name",by.y="transcript_name",sort=F,all.x=TRUE)
-as.data.frame(fData.tmp)
+#fData.tmp<-merge(fData,gencode.dat,by.x="gene_short_name",by.y="alias",sort=F,all.x=TRUE)
+fData.tmp<-merge(fData, unique(gencode.dat[gencode.dat$ccdsid %in% c("lincRNA", "protein_coding","bidirectional_promoter_lncRNA", "antisense"),c("transcript_name","ccdsid")]), by.x="gene_short_name",by.y="transcript_name",sort=F,all.x=TRUE)
+
 rownames(fData.tmp)<-fData.tmp$gene_short_name
-fData<-fData.tmp[rownames(fData),]
-colnames(fData)<-c("gene_short_name", "clusterAssignment", "transcript_type")
-rownames(fData.tmp)<-fData.tmp$gene_short_name
+fData.tmp<-fData.tmp[rownames(fData),]
+fData<-fData.tmp
+fData<- as.data.frame(fData)
 
 # Make CDS object
 
@@ -80,7 +80,7 @@ dat <-  newCellDataSet(countData,
                        lowerDetectionLimit=1)
 
 dat<-estimateSizeFactors(dat)
-dat <- estimateDispersions(dat, cores=8)
+dat <- estimateDispersions(dat, cores=2)
 dat<-detectGenes(dat,min_expr=1)
 
 # rename 'group #' column
@@ -100,6 +100,10 @@ qplot(Total_mRNAs, data=pData(dat), fill=level1class, geom="density", alpha=0.1)
 
 
 ```{r Bulk_Analysis, tidy=TRUE, fig.height=5, fig.width=5}
+# Rename bidirectionally promoted lncRNAs and antisense lncRNAs to "lincRNAs"
+fData(dat)$ccdsid <- gsub("antisense", "lincRNA", fData(dat)$ccdsid)
+fData(dat)$ccdsid <- gsub("bidirectional_promoter_lncRNA", "lincRNA", fData(dat)$ccdsid)
+
 # Calculate the mean copies per cell among all classes (Bulk) and draw the density plot for lincRNAs vs protein coding
 dat.means<-detectGenes(dat, min_expr = 1)
 dat.means<-dat.means[fData(dat.means)$num_cells_expressed >=2]
@@ -107,7 +111,7 @@ fData(dat.means)$mean_cpc<-apply(exprs(dat.means),1,mean)
 fData(dat.means)$sd<-apply(exprs(dat.means),1,sd)
 fData(dat.means)$BCV<-(fData(dat.means)$sd/fData(dat.means)$mean_cpc)^2
 
-tmp<-data.frame("gene_short_name" = fData(dat.means)$gene_short_name,"gene_type" = fData(dat.means)$transcript_type,"mean_cpc"=fData(dat.means)$mean_cpc, "BCV" = fData(dat.means)$BCV, "num_cells_expresed"=fData(dat.means)$num_cells_expressed)
+tmp<-data.frame("gene_short_name" = fData(dat.means)$gene_short_name,"gene_type" = fData(dat.means)$ccdsid,"mean_cpc"=fData(dat.means)$mean_cpc, "BCV" = fData(dat.means)$BCV, "num_cells_expresed"=fData(dat.means)$num_cells_expressed)
 
 dat_means<-subset(tmp,gene_type %in% c("protein_coding","lincRNA"))
 
@@ -134,7 +138,7 @@ boxplot<-ggplot(dat_means, aes(gene_type, frac_cells_expressed, fill=gene_type))
 boxplot
 
 #Generate empirical cumulative density function
-ecdf<-ggplot(dat_means, aes(x=log10(BCV), color=gene_type)) + stat_ecdf(geom = "line") + theme_bw() + scale_color_manual(values=c("red", "grey50"))
+ecdf<-ggplot(dat_means, aes(x=log10(BCV), color=gene_type)) + stat_ecdf(geom = "line") + theme_bw() + scale_color_manual(values=c("red", "black"))
 
 ecdf
 ```
@@ -155,9 +159,9 @@ tSNE_cluster
 tSNE_level2class<-p + geom_point(aes(x=tSNE1_pos,y=tSNE2_pos,color=level2class)) + theme_bw() + coord_equal(1) +  scale_color_manual(values = colorRampPalette(brewer.pal(9, "Set1"))(length(unique(pData(tmp)$level2class))))
 
 #tSNE using only lncRNAs
-tmp<-subset(dat, fData(dat)$transcript_type %in% "lincRNA")
+tmp<-subset(dat, fData(dat)$ccdsid %in% "lincRNA")
 
-lincRNA.dat.tSNE<-Rtsne(t(round(vstExprs(tmp))),theta=0.1, check_duplicates = F)
+lincRNA.dat.tSNE<-Rtsne(t(round(vstExprs(tmp))),theta=0.1, check_duplicates = F)  ## perplexity is too large???
 
 pData(tmp)$tSNE1_pos<-lincRNA.dat.tSNE$Y[,1]
 pData(tmp)$tSNE2_pos<-lincRNA.dat.tSNE$Y[,2]
@@ -189,9 +193,9 @@ lincRNA_tSNE_batch<-j + geom_point(aes(x=tSNE1_pos,y=tSNE2_pos,color=batch)) + t
 
 lincRNA_tSNE_batch
 
-#tSNE by lincRNA without Xist (we do this because Xist expression splits the cells into two groups by sex)
-sex_blind.dat<-subset(dat, fData(dat)$transcript_type %in% "lincRNA")
-sex_blind_list<-as.vector(rownames(exprs(sex_blind.dat)[-1,]))
+#tSNE by lincRNA without Xist and Tsix (we do this because Xist and Tsix expression splits the cells into two groups by sex)
+sex_blind.dat<-subset(dat, fData(dat)$ccdsid %in% "lincRNA")
+sex_blind_list<-as.vector(rownames(exprs(sex_blind.dat)[c(-1, -5),]))
 sex_blind.dat<-subset(sex_blind.dat, rownames(exprs(sex_blind.dat)) %in% sex_blind_list)
 
 sex_blind_lincRNA.tSNE<-Rtsne(t(round(vstExprs(sex_blind.dat))),theta=0.1, check_duplicates = F)
@@ -235,7 +239,7 @@ tmp<-data.frame()
 
 group_means<-lapply(c(1:length(Cluster.split)), function(i){
   x<-Cluster.split[[i]]
-  res<-data.frame("gene_short_name"=fData(x)$gene_short_name, "gene_type"=fData(x)$transcript_type, "mean_cpc"=fData(x)$mean_cpc, "group_num"=unique(pData(x)$group_num), "frac_cells_expressed"=fData(x)$frac_cells_expressed)
+  res<-data.frame("gene_short_name"=fData(x)$gene_short_name, "gene_type"=fData(x)$ccdsid, "mean_cpc"=fData(x)$mean_cpc, "group_num"=unique(pData(x)$group_num), "frac_cells_expressed"=fData(x)$frac_cells_expressed)
   tmp<-rbind(tmp,res)
   })
 
@@ -280,7 +284,7 @@ tmp<-data.frame()
 
 group_means_level2class<-lapply(c(1:length(level2.split)), function(i){
   x<-level2.split[[i]]
-  res<-data.frame("gene_short_name"=fData(x)$gene_short_name ,"gene_type"=fData(x)$transcript_type ,"mean_cpc"=fData(x)$mean_cpc ,"level2class"=unique(pData(x)$level2class))
+  res<-data.frame("gene_short_name"=fData(x)$gene_short_name ,"gene_type"=fData(x)$ccdsid ,"mean_cpc"=fData(x)$mean_cpc ,"level2class"=unique(pData(x)$level2class))
   tmp<-rbind(tmp,res)
   })
 
@@ -353,7 +357,7 @@ tmp<- data.frame()
 
 bcv_level2class<-lapply(c(1:length(complete.level2.split)), function(i){
   x<-complete.level2.split[[i]]
-  res<-data.frame("gene_short_name"=fData(x)$gene_short_name, "gene_type"=fData(x)$transcript_type, "mean_cpc"=fData(x)$mean_cpc,"BCV" =fData(x)$BCV, "gene_sd_pc" = fData(x)$gene_std_pc, "level2class"=unique(pData(x)$level2class), "frac_cells_expressed"=fData(x)$frac_cells_expressed)
+  res<-data.frame("gene_short_name"=fData(x)$gene_short_name, "gene_type"=fData(x)$ccdsid, "mean_cpc"=fData(x)$mean_cpc,"BCV" =fData(x)$BCV, "gene_sd_pc" = fData(x)$gene_std_pc, "level2class"=unique(pData(x)$level2class), "frac_cells_expressed"=fData(x)$frac_cells_expressed)
   tmp<-rbind(tmp,res)
   })
 
@@ -409,7 +413,7 @@ tmp<- data.frame()
 
 bcv_cluster<-lapply(c(1:length(cluster.bcv.dat)), function(i){
   x<-cluster.bcv.dat[[i]]
-  res<-data.frame("gene_short_name"=fData(x)$gene_short_name, "gene_type"=fData(x)$transcript_type, "mean_cpc"=fData(x)$mean_cpc,"BCV" =fData(x)$BCV, "gene_sd_pc" = fData(x)$gene_std_pc, "cluster_num" = rep(i))
+  res<-data.frame("gene_short_name"=fData(x)$gene_short_name, "gene_type"=fData(x)$ccdsid, "mean_cpc"=fData(x)$mean_cpc,"BCV" =fData(x)$BCV, "gene_sd_pc" = fData(x)$gene_std_pc, "cluster_num" = rep(i))
   tmp<-rbind(tmp,res)
   })
 
