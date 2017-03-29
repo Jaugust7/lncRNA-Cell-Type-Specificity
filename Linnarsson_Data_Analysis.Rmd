@@ -20,6 +20,8 @@ library(matrixStats)
 library(tidyr)
 library(GenomicFeatures)
 library(RColorBrewer)
+library(distr)
+library(data.table)
 ```
 
 
@@ -45,9 +47,9 @@ rownames(pData)<-pData$cell_id
 #split out expr data
 countData<-dat[-c(1:11),]
 rownames(countData)<-str_trim(as.character(format(countData[,1])))
-countData<-countData[,-c(1:2)] ### Need to check with Loyal about this... (nevermind...)
+countData<-countData[,-c(1:2)]
 colnames(countData)<-pData$cell_id
-countData<-data.matrix(format(countData))
+countData<-data.matrix(countData)
 
 # Split out fData
 fData<-data.frame("gene_short_name"=rownames(countData),"clusterAssignment"=countData[,1])
@@ -58,13 +60,13 @@ rownames(gencode.dat)<-NULL
 
 myJoin<-function(x){paste(x,collapse=",")}
 
-#fData.tmp<-merge(fData,ucsc.dat,by.x="gene_short_name",by.y="alias",sort=F,all.x=TRUE)
-fData.tmp<-merge(fData, unique(gencode.dat[gencode.dat$ccdsid %in% c("lincRNA", "protein_coding"),c("transcript_name","ccdsid")]), by.x="gene_short_name",by.y="transcript_name",sort=F,all.x=TRUE)
-as.data.frame(fData.tmp)
+#fData.tmp<-merge(fData,gencode.dat,by.x="gene_short_name",by.y="alias",sort=F,all.x=TRUE)
+fData.tmp<-merge(fData, unique(gencode.dat[gencode.dat$ccdsid %in% c("lincRNA", "protein_coding","bidirectional_promoter_lncRNA", "antisense"),c("transcript_name","ccdsid")]), by.x="gene_short_name",by.y="transcript_name",sort=F,all.x=TRUE)
+
 rownames(fData.tmp)<-fData.tmp$gene_short_name
-fData<-fData.tmp[rownames(fData),]
-colnames(fData)<-c("gene_short_name", "clusterAssignment", "transcript_type")
-rownames(fData.tmp)<-fData.tmp$gene_short_name
+fData.tmp<-fData.tmp[rownames(fData),]
+fData<-fData.tmp
+fData<- as.data.frame(fData)
 
 # Make CDS object
 
@@ -80,7 +82,7 @@ dat <-  newCellDataSet(countData,
                        lowerDetectionLimit=1)
 
 dat<-estimateSizeFactors(dat)
-dat <- estimateDispersions(dat, cores=8)
+dat <- estimateDispersions(dat, cores=2)
 dat<-detectGenes(dat,min_expr=1)
 
 # rename 'group #' column
@@ -89,7 +91,7 @@ colnames(pData(dat))[2] <- "group_num"
 ```
 
 
-```{r Quality_Control, tidy=TRUE, fig.width=15, fig.height=10 }
+```{r Quality_Control, tidy=TRUE, fig.width=15, fig.height=10, echo=F, include=F}
 #QC of data after
 pData(dat)$Total_mRNAs <- Matrix::colSums(exprs(dat))
 
@@ -100,6 +102,10 @@ qplot(Total_mRNAs, data=pData(dat), fill=level1class, geom="density", alpha=0.1)
 
 
 ```{r Bulk_Analysis, tidy=TRUE, fig.height=5, fig.width=5}
+# Rename bidirectionally promoted lncRNAs and antisense lncRNAs to "lincRNAs"
+fData(dat)$ccdsid <- gsub("antisense", "lincRNA", fData(dat)$ccdsid)
+fData(dat)$ccdsid <- gsub("bidirectional_promoter_lncRNA", "lincRNA", fData(dat)$ccdsid)
+
 # Calculate the mean copies per cell among all classes (Bulk) and draw the density plot for lincRNAs vs protein coding
 dat.means<-detectGenes(dat, min_expr = 1)
 dat.means<-dat.means[fData(dat.means)$num_cells_expressed >=2]
@@ -107,7 +113,7 @@ fData(dat.means)$mean_cpc<-apply(exprs(dat.means),1,mean)
 fData(dat.means)$sd<-apply(exprs(dat.means),1,sd)
 fData(dat.means)$BCV<-(fData(dat.means)$sd/fData(dat.means)$mean_cpc)^2
 
-tmp<-data.frame("gene_short_name" = fData(dat.means)$gene_short_name,"gene_type" = fData(dat.means)$transcript_type,"mean_cpc"=fData(dat.means)$mean_cpc, "BCV" = fData(dat.means)$BCV, "num_cells_expresed"=fData(dat.means)$num_cells_expressed)
+tmp<-data.frame("gene_short_name" = fData(dat.means)$gene_short_name,"gene_type" = fData(dat.means)$ccdsid,"mean_cpc"=fData(dat.means)$mean_cpc, "BCV" = fData(dat.means)$BCV, "num_cells_expresed"=fData(dat.means)$num_cells_expressed)
 
 dat_means<-subset(tmp,gene_type %in% c("protein_coding","lincRNA"))
 
@@ -134,9 +140,86 @@ boxplot<-ggplot(dat_means, aes(gene_type, frac_cells_expressed, fill=gene_type))
 boxplot
 
 #Generate empirical cumulative density function
-ecdf<-ggplot(dat_means, aes(x=log10(BCV), color=gene_type)) + stat_ecdf(geom = "line") + theme_bw() + scale_color_manual(values=c("red", "grey50"))
+ecdf<-ggplot(dat_means, aes(x=log10(BCV), color=gene_type)) + stat_ecdf(geom = "line") + theme_bw() + scale_color_manual(values=c("red", "black"))
 
 ecdf
+
+#test dotplot
+dot<-ggplot(dat_means, aes(x=log10(mean_cpc), y=frac_cells_expressed, color=gene_type)) + geom_point() + facet_wrap(~gene_type) +theme_bw() + scale_color_manual(values=c("red", "black"))
+
+dot
+```
+
+
+```{r Learned_Distributions, tidy=TRUE, fig.width=5, fig.height=5}
+# Density estimates
+lnc.dens<-density(subset(dat_means,gene_type %in% "lincRNA")$mean_cpc)
+log.lnc.dens<-density(log10(subset(dat_means,gene_type %in% "lincRNA")$mean_cpc))
+PC.dens<-density(subset(dat_means,gene_type %in% "protein_coding")$mean_cpc)
+log.PC.dens<-density(log10(subset(dat_means,gene_type %in% "protein_coding")$mean_cpc))
+
+#Learn the distribution of lncRNAs
+learned.lnc.den<-DiscreteDistribution(subset(dat_means, gene_type %in% "lincRNA")$mean_cpc)
+
+# Create weighted probabilities on PC gene FPKM values from which to sample
+PC.weights.on.lnc.D<-p(learned.lnc.den)(subset(dat_means, gene_type %in% "protein_coding")$mean_cpc,lower.tail=FALSE)
+PC.probs.on.lnc.D<-PC.weights.on.lnc.D/sum(PC.weights.on.lnc.D)
+
+#Sample from PC genes to match lncRNA distribution
+samp_PC<-sample(subset(dat_means, gene_type %in% "protein_coding")$mean_cpc, replace =T, size=339, prob=PC.probs.on.lnc.D)
+
+#My Sampling function
+mySample<-function(x,n,EmpDist){
+  w<-p(EmpDist)(x$mean_cpc,lower.tail=FALSE)
+  probs<-w/sum(w)
+  samp<-x[sample(nrow(x),replace=FALSE,size=n,prob=probs),]
+  return(samp)
+}
+
+#Check plot
+plot(density(log10(mySample(subset(dat_means,gene_type %in% "protein_coding"),n=339,EmpDist=learned.lnc.den)$mean_cpc)),main ="Sampling mRNAs from the lncRNA expression distribution")
+lines(density(log10(r(learned.lnc.den)(339))), col ="blue")
+lines(log.lnc.dens, col ="red")
+lines(log.PC.dens,col="green")
+legend(x=-0.5,y=0.5,legend=c("lncRNA distribution","Random draws from learned dist","Sampled mRNAs from learned dist"),col=c("red","blue","black"),lty=1) 
+
+#Generate a subset of dat_means that is only mRNAs that fit the learned lncRNA expression distribution
+mRNA.sample<-dat_means[dat_means$gene_short_name %in% sample(subset(dat_means, gene_type %in% "protein_coding")$gene_short_name, replace =T, size=339, prob=PC.probs.on.lnc.D),]
+
+#change gene_type to sampled for sampled mRNAs and append it to dat_means
+mRNA.sample$gene_type<-"sampled"
+dat_sampled<-rbind(dat_means,mRNA.sample)
+
+#Draw a new barplot 
+p1<-ggplot(dat_sampled, aes(gene_type, frac_cells_expressed, fill=gene_type)) + geom_boxplot(notch=T) + theme_bw() + scale_fill_manual(values=c("red", "grey50","darkblue"))
+p1
+
+#Draw a new ecdf plot
+p2<-ggplot(dat_sampled, aes(x=log10(BCV), color=gene_type)) + stat_ecdf(geom = "line") + theme_bw() + scale_color_manual(values=c("red", "black", "darkblue"))
+p2
+
+#Draw a new density plot
+p3<-ggplot(dat_sampled, aes(x=log10(mean_cpc), color=gene_type)) + geom_density() + theme_bw() + scale_color_manual(values=c("red", "black", "darkblue"))
+p3
+```
+
+```{r, tidy=T}
+#Draw a tSNE using sample mRNAs from above
+
+subsetmRNA<-subset(dat, fData(dat)$gene_short_name %in% mRNA.sample$gene_short_name)
+
+sampled.dat.tSNE<-Rtsne(t(round(vstExprs(subsetmRNA))),theta=0.1, check_duplicates = F) 
+
+pData(subsetmRNA)$tSNE1_pos<-sampled.dat.tSNE$Y[,1]
+pData(subsetmRNA)$tSNE2_pos<-sampled.dat.tSNE$Y[,2]
+
+q<-ggplot(pData(subsetmRNA))
+
+sampled_tSNE<-q + geom_point(aes(x=tSNE1_pos,y=tSNE2_pos,color=group_num)) + theme_bw() + coord_equal(1) + scale_color_brewer(palette="Set1")
+
+sampled_tSNE
+
+#There doesn't seem to be any more or less organization present here. May be worth bootstrapping and quantfitying how well each of the tSNEs cluster the data points.
 ```
 
 ```{r tSNE, tidy=TRUE, fig.height=10, fig.width=10}
@@ -154,44 +237,63 @@ tSNE_cluster
 
 tSNE_level2class<-p + geom_point(aes(x=tSNE1_pos,y=tSNE2_pos,color=level2class)) + theme_bw() + coord_equal(1) +  scale_color_manual(values = colorRampPalette(brewer.pal(9, "Set1"))(length(unique(pData(tmp)$level2class))))
 
+#tSNE using only protein coding genes
+pcgenes<-subset(dat, fData(dat)$ccdsid %in% "protein_coding")
+
+protein_coding.dat.tSNE<-Rtsne(t(round(vstExprs(pcgenes))),theta=0.1, check_duplicates = F) 
+
+pData(pcgenes)$tSNE1_pos<-protein_coding.dat.tSNE$Y[,1]
+pData(pcgenes)$tSNE2_pos<-protein_coding.dat.tSNE$Y[,2]
+
+q<-ggplot(pData(pcgenes))
+
+protein_coding_tSNE<-q + geom_point(aes(x=tSNE1_pos,y=tSNE2_pos,color=group_num)) + theme_bw() + coord_equal(1) + scale_color_brewer(palette="Set1")
+
+protein_coding_tSNE
+
 #tSNE using only lncRNAs
-tmp<-subset(dat, fData(dat)$transcript_type %in% "lincRNA")
+lncgenes<-subset(dat, fData(dat)$ccdsid %in% "lincRNA")
 
-lincRNA.dat.tSNE<-Rtsne(t(round(vstExprs(tmp))),theta=0.1, check_duplicates = F)
+lincRNA.dat.tSNE<-Rtsne(t(round(vstExprs(lncgenes))),theta=0.1, check_duplicates = F)
 
-pData(tmp)$tSNE1_pos<-lincRNA.dat.tSNE$Y[,1]
-pData(tmp)$tSNE2_pos<-lincRNA.dat.tSNE$Y[,2]
+pData(lncgenes)$tSNE1_pos<-lincRNA.dat.tSNE$Y[,1]
+pData(lncgenes)$tSNE2_pos<-lincRNA.dat.tSNE$Y[,2]
 
-q<-ggplot(pData(tmp))
+q1<-ggplot(pData(lncgenes))
 
 #tSNE using only lncRNAs color by cluster number (as determined by Linnarsson Lab)
-lincRNA_tSNE<-q + geom_point(aes(x=tSNE1_pos,y=tSNE2_pos,color=group_num)) + theme_bw() + coord_equal(1) + scale_color_brewer(palette="Set1")
+lincRNA_tSNE<-q1 + geom_point(aes(x=tSNE1_pos,y=tSNE2_pos,color=group_num)) + theme_bw() + coord_equal(1) + scale_color_brewer(palette="Set1")
 
 lincRNA_tSNE
 
+#tSNE using only lncRNAs colored by level1class (as determined by Linnarsson Lab)
+lincRNA_level1class_tSNE<-q1 + geom_point(aes(x=tSNE1_pos,y=tSNE2_pos,color=level1class)) + theme_bw() + coord_equal(1) + scale_color_brewer(palette="Set1")
+
+lincRNA_level1class_tSNE
+
 #tSNE using only lncRNAs color by level2clss
-lincRNA_tSNE_level2class<-q + geom_point(aes(x=tSNE1_pos,y=tSNE2_pos,color=level2class)) + theme_bw() + coord_equal(1) +  scale_color_manual(values = colorRampPalette(brewer.pal(9, "Set1"))(length(unique(pData(tmp)$level2class))))
+lincRNA_tSNE_level2class<-q1 + geom_point(aes(x=tSNE1_pos,y=tSNE2_pos,color=level2class)) + theme_bw() + coord_equal(1) +  scale_color_manual(values = colorRampPalette(brewer.pal(9, "Set1"))(length(unique(pData(tmp)$level2class))))
 
 lincRNA_tSNE_level2class
 
 #Color by Sex, size is reflective of XIST expression
-lincRNA_tSNE_sex<-q + geom_point(aes(x=tSNE1_pos,y=tSNE2_pos,color=sex, size=exprs(tmp)[1,])) + scale_size("Xist") + theme_bw() + coord_equal(1) +  scale_fill_brewer(palette = "Set1")
+lincRNA_tSNE_sex<-q1 + geom_point(aes(x=tSNE1_pos,y=tSNE2_pos,color=sex, size=exprs(lncgenes)[2,])) + scale_size("Xist") + theme_bw() + coord_equal(1) +  scale_fill_brewer(palette = "Set1")
 
 lincRNA_tSNE_sex
 
 #Color by infered batch (utililze the run number from cell_id in order to infer batch)
-pData(tmp)$cell_id<-colnames(exprs(tmp))
-pData(tmp)$batch<-str_split_fixed(pData(tmp)$cell_id, "_", 2)[,1]
+pData(lncgenes)$cell_id<-colnames(exprs(lncgenes))
+pData(lncgenes)$batch<-str_split_fixed(pData(lncgenes)$cell_id, "_", 2)[,1]
 
-j<-ggplot(pData(tmp))
+j<-ggplot(pData(lncgenes))
 
-lincRNA_tSNE_batch<-j + geom_point(aes(x=tSNE1_pos,y=tSNE2_pos,color=batch)) + theme_bw() + coord_equal(1) + scale_color_manual(values = colorRampPalette(brewer.pal(9, "Set1"))(length(unique(pData(tmp)$batch))))
+lincRNA_tSNE_batch<-j + geom_point(aes(x=tSNE1_pos,y=tSNE2_pos,color=batch)) + theme_bw() + coord_equal(1) + scale_color_manual(values = colorRampPalette(brewer.pal(9, "Set1"))(length(unique(pData(lncgenes)$batch))))
 
 lincRNA_tSNE_batch
 
-#tSNE by lincRNA without Xist (we do this because Xist expression splits the cells into two groups by sex)
-sex_blind.dat<-subset(dat, fData(dat)$transcript_type %in% "lincRNA")
-sex_blind_list<-as.vector(rownames(exprs(sex_blind.dat)[-1,]))
+#tSNE by lincRNA without Xist and Tsix (we do this because Xist and Tsix expression splits the cells into two groups by sex)
+sex_blind.dat<-subset(dat, fData(dat)$ccdsid %in% "lincRNA")
+sex_blind_list<-as.vector(rownames(exprs(sex_blind.dat)[c(-2, -6),]))
 sex_blind.dat<-subset(sex_blind.dat, rownames(exprs(sex_blind.dat)) %in% sex_blind_list)
 
 sex_blind_lincRNA.tSNE<-Rtsne(t(round(vstExprs(sex_blind.dat))),theta=0.1, check_duplicates = F)
@@ -235,7 +337,7 @@ tmp<-data.frame()
 
 group_means<-lapply(c(1:length(Cluster.split)), function(i){
   x<-Cluster.split[[i]]
-  res<-data.frame("gene_short_name"=fData(x)$gene_short_name, "gene_type"=fData(x)$transcript_type, "mean_cpc"=fData(x)$mean_cpc, "group_num"=unique(pData(x)$group_num), "frac_cells_expressed"=fData(x)$frac_cells_expressed)
+  res<-data.frame("gene_short_name"=fData(x)$gene_short_name, "gene_type"=fData(x)$ccdsid, "mean_cpc"=fData(x)$mean_cpc, "group_num"=unique(pData(x)$group_num), "frac_cells_expressed"=fData(x)$frac_cells_expressed)
   tmp<-rbind(tmp,res)
   })
 
@@ -249,11 +351,26 @@ density.plot_Cluster <- ggplot(group_means) +
   scale_color_manual(values=c("red", "black")) + theme_bw()
 
 density.plot_Cluster
+```
+
+```{r, tidy=T, fig.height=5, fig.width=5}
 
 #Generate box plots
 boxplot_cluster<-ggplot(group_means, aes(gene_type, frac_cells_expressed, fill=gene_type))
 
 boxplot_cluster + geom_boxplot() + theme_bw() + scale_fill_manual(values=c("red", "grey50")) + facet_grid(~ group_num, labeller=labeller(group_num=function(x){paste("Cluster",x,sep=":")}))
+
+#pointplot
+group_means1<-data.table(group_means, key="gene_short_name")
+group_means1<-group_means1[, .SD[mean_cpc %in% max(mean_cpc)], by=gene_short_name]
+
+group_means2<-data.table(group_means, key="gene_short_name")
+group_means2<-group_means2[, .SD[frac_cells_expressed %in% max(frac_cells_expressed) & mean_cpc %in% max(mean_cpc)], by=gene_short_name]
+
+adjusted_point<-ggplot(group_means2, aes(x=log10(mean_cpc), y=frac_cells_expressed, color=gene_type)) + geom_point() + facet_wrap(~gene_type) +theme_bw() + scale_color_manual(values=c("red", "black"))
+
+adjusted_point
+
 ```
 
 Seperate the "dat" CellDataSet by level2class and calculate mean expression of genes
@@ -280,7 +397,7 @@ tmp<-data.frame()
 
 group_means_level2class<-lapply(c(1:length(level2.split)), function(i){
   x<-level2.split[[i]]
-  res<-data.frame("gene_short_name"=fData(x)$gene_short_name ,"gene_type"=fData(x)$transcript_type ,"mean_cpc"=fData(x)$mean_cpc ,"level2class"=unique(pData(x)$level2class))
+  res<-data.frame("gene_short_name"=fData(x)$gene_short_name ,"gene_type"=fData(x)$ccdsid ,"mean_cpc"=fData(x)$mean_cpc ,"level2class"=unique(pData(x)$level2class))
   tmp<-rbind(tmp,res)
   })
 
@@ -353,7 +470,7 @@ tmp<- data.frame()
 
 bcv_level2class<-lapply(c(1:length(complete.level2.split)), function(i){
   x<-complete.level2.split[[i]]
-  res<-data.frame("gene_short_name"=fData(x)$gene_short_name, "gene_type"=fData(x)$transcript_type, "mean_cpc"=fData(x)$mean_cpc,"BCV" =fData(x)$BCV, "gene_sd_pc" = fData(x)$gene_std_pc, "level2class"=unique(pData(x)$level2class), "frac_cells_expressed"=fData(x)$frac_cells_expressed)
+  res<-data.frame("gene_short_name"=fData(x)$gene_short_name, "gene_type"=fData(x)$ccdsid, "mean_cpc"=fData(x)$mean_cpc,"BCV" =fData(x)$BCV, "gene_sd_pc" = fData(x)$gene_std_pc, "level2class"=unique(pData(x)$level2class), "frac_cells_expressed"=fData(x)$frac_cells_expressed)
   tmp<-rbind(tmp,res)
   })
 
@@ -373,6 +490,19 @@ density.plot_all_level2class
 #Generate box plots
 boxplot_level2Class<-ggplot(level2_bcv, aes(gene_type, frac_cells_expressed, fill=gene_type))
 boxplot_level2Class + geom_boxplot() + theme_bw() + scale_fill_manual(values=c("red", "grey50")) + facet_wrap(~ level2class, nrow=8)
+
+#generate point plots
+level2_bcv1<-data.table(level2_bcv, key = "gene_short_name")
+level2_bcv1<-level2_bcv1[, .SD[frac_cells_expressed %in% max(frac_cells_expressed) & mean_cpc %in% max(mean_cpc)], by=gene_short_name]
+
+level2class_adjusted_point<-ggplot(level2_bcv1, aes(x=log10(mean_cpc), y=frac_cells_expressed, color=gene_type)) + geom_point() + facet_wrap(~gene_type) +theme_bw() + scale_color_manual(values=c("red", "black"))
+
+level2class_adjusted_point
+
+#sanity test density plot
+q1<-ggplot(level2_bcv1, aes(x=log10(mean_cpc), color=gene_type))+geom_density()+theme_bw()+scale_color_manual(values=c("red", "black"))
+
+#summary of level2class analysis
 
 ```
 
@@ -409,7 +539,7 @@ tmp<- data.frame()
 
 bcv_cluster<-lapply(c(1:length(cluster.bcv.dat)), function(i){
   x<-cluster.bcv.dat[[i]]
-  res<-data.frame("gene_short_name"=fData(x)$gene_short_name, "gene_type"=fData(x)$transcript_type, "mean_cpc"=fData(x)$mean_cpc,"BCV" =fData(x)$BCV, "gene_sd_pc" = fData(x)$gene_std_pc, "cluster_num" = rep(i))
+  res<-data.frame("gene_short_name"=fData(x)$gene_short_name, "gene_type"=fData(x)$ccdsid, "mean_cpc"=fData(x)$mean_cpc,"BCV" =fData(x)$BCV, "gene_sd_pc" = fData(x)$gene_std_pc, "cluster_num" = rep(i))
   tmp<-rbind(tmp,res)
   })
 
@@ -422,7 +552,7 @@ delta_median_by_cluster<-lapply(c(1:9), function(x){
   median(subset(mRNA_bcv, mRNA_bcv$cluster_num==x)$mean_cpc)-median(subset(linc_bcv,linc_bcv$cluster_num==x)$mean_cpc)
   })
 
-names(delta_median_by_cluster)<-c("Cluster_1", "Cluster_2", "Cluster_3", "Cluster_4", "Cluster_5", "Cluster_6", "Cluster_7", "Cluster_8", "Cluster_9")
+names(delta_median_by_cluster)<-c("Cluster 1", "Cluster 2", "Cluster 3", "Cluster 4", "Cluster 5", "Cluster 6", "Cluster 7", "Cluster 8", "Cluster 9")
 
 #Generate a scatter plot of Δ median copies per cell (mRNA-lncRNA) for each cluster
 delta_median_by_cluster<-as.matrix(delta_median_by_cluster)
@@ -437,5 +567,14 @@ p<-ggplot(delta_median_by_cluster, aes(x=Number_of_subtypes, y=delta_median_mean
 scatter.plot<-p + geom_point(aes(color=rownames(delta_median_by_cluster))) + geom_smooth(aes(alpha=0.1),method = "lm", se = T, color="black", alpha=0.2) + scale_color_brewer(palette = "Set1", guide = guide_legend(title = "Cluster #")) + guides(fill="none") + theme_bw() + xlab("Number of cellular subtypes") +ylab("Δ median copies per cell (mRNA-lncRNA)") + theme(legend.position="none")
 
 scatter.plot
+
+#generate ecdf plots
+subset_bcv<-subset(bcv, bcv$gene_type %in% c("lincRNA","protein_coding"))
+ecdf_cluster<-ggplot(subset_bcv, aes(x=log10(BCV), color=gene_type)) + stat_ecdf(geom = "line") + facet_wrap(~cluster_num, nrow=1) + scale_color_manual(values=c("red", "black")) + theme_bw()
+
+ecdf_cluster
 ```
+#Session Info
+```{r, Session Info, tidy=T}
+sessionInfo()
 
