@@ -651,7 +651,7 @@ tmp<- data.frame()
 
 bcv_cluster<-lapply(c(1:length(cluster.bcv.dat)), function(i){
   x<-cluster.bcv.dat[[i]]
-  res<-data.frame("gene_short_name"=fData(x)$gene_short_name, "gene_type"=fData(x)$gene_biotype, "mean_cpc"=fData(x)$mean_cpc,"BCV" =fData(x)$BCV, "gene_sd_pc" = fData(x)$gene_std_pc, "cluster_num" = rep(i))
+  res<-data.frame("gene_short_name"=fData(x)$gene_short_name, "gene_type"=fData(x)$gene_biotype, "mean_cpc"=log10(fData(x)$mean_cpc),"BCV" =fData(x)$BCV, "gene_sd_pc" = fData(x)$gene_std_pc, "cluster_num" = rep(i))
   tmp<-rbind(tmp,res)
   })
 
@@ -682,15 +682,16 @@ scatter.plot
 ```
 
 ```{r, Summary Plots, tidy=T}
-#calculate the delta median copies per cell
+#calculate the delta median copies per cell by Level2classes
 tmp<-data.frame()
 delta_level2class<-lapply(c(1:length(complete.level2.split)), function(i){
     x<-complete.level2.split[[i]]
-  res<-data.frame("gene_short_name"=fData(x)$gene_short_name, "gene_type"=fData(x)$gene_biotype, "mean_cpc"=fData(x)$mean_cpc,"BCV" =fData(x)$BCV, "gene_sd_pc" = fData(x)$gene_std_pc, "cluster_num" = rep(i))
+  res<-data.frame("gene_short_name"=fData(x)$gene_short_name, "gene_type"=fData(x)$gene_biotype, "mean_cpc"=log10(fData(x)$mean_cpc),"BCV" =fData(x)$BCV, "gene_sd_pc" = fData(x)$gene_std_pc, "cluster_num" = rep(i))
   tmp<-rbind(tmp,res)
   })
 
 level2_reduced<-Reduce(function(...) merge(..., all=TRUE), delta_level2class)
+level2_reduced.2<-do.call(rbind,delta_level2class)
 
 linc_level2<-subset(level2_reduced, level2_reduced$gene_type=="lincRNA")
 mRNA_level2<-subset(level2_reduced, level2_reduced$gene_type=="protein_coding")
@@ -702,7 +703,34 @@ level2_reduced<-lapply(c(1:48), function(x){
 level2_reduced<-as.matrix(level2_reduced)
 colnames(level2_reduced) <- "delta_median_mean_cpc"
 rownames(level2_reduced)<-c(1:48)
+level2_reduced<-as.data.frame(level2_reduced)
+level2_reduced$Level<-rep("level2",48)
 
+#calculate the delta median copies per cell by cluster
+tmp<-data.frame()
+delta_cluster<-lapply(c(1:length(Cluster.split)), function(i){
+    x<-Cluster.split[[i]]
+  res<-data.frame("gene_short_name"=fData(x)$gene_short_name, "gene_type"=fData(x)$gene_biotype, "mean_cpc"=log10(fData(x)$mean_cpc), "cluster_num" = rep(i))
+  })
+
+cluster_reduced<-Reduce(function(...) merge(..., all=TRUE), delta_cluster)
+
+linc_cluster<-subset(cluster_reduced, cluster_reduced$gene_type=="lincRNA")
+mRNA_cluster<-subset(cluster_reduced, cluster_reduced$gene_type=="protein_coding")
+
+cluster_reduced<-lapply(c(1:9), function(x){
+  median(subset(mRNA_cluster, mRNA_cluster$cluster_num==x)$mean_cpc)-median(subset(linc_cluster,linc_cluster$cluster_num==x)$mean_cpc)
+  })
+
+cluster_reduced<-melt(cluster_reduced)
+colnames(cluster_reduced)<-c("delta_median_mean_cpc", "Level")
+dmv<-rbind(level2_reduced, cluster_reduced)
+rownames(dmv)<-c(1:length(dmv$delta_median_mean_cpc))
+dmv[c(49:57),]$Level<-rep("cluster",length(dmv[c(49:57),]$Level))
+dmv$delta_median_mean_cpc<-as.numeric(dmv$delta_median_mean_cpc)
+
+
+#calculate the delta median copies per cell by aggregate
 
 ```
 
@@ -1163,7 +1191,7 @@ ggplot(KS_values, aes(level, dval, fill=level)) + geom_boxplot() + theme_bw() + 
 ggplot(KS_values, aes(level, -log10(pval), fill=level)) + geom_boxplot() + theme_bw() + scale_fill_manual(values=c("black","darkblue","darkred", "darkgreen", "yellow"))
 ```
 
-```{r, tidy=T}
+```{r Generate delta median boxplots, tidy=T}
 delta_median_by_samp<-lapply(c(1:9), function(x){
   median(subset(mRNA_bcv, mRNA_bcv$cluster_num==x)$mean_cpc)-median(subset(linc_bcv,linc_bcv$cluster_num==x)$mean_cpc)
   })
